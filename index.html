@@ -3,70 +3,21 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Scan — rule overlay</title>
+  <title>Scan board</title>
   <link rel="stylesheet" href="styles.css" />
-  <script src="https://unpkg.com/lightweight-charts@4.2.3/dist/lightweight-charts.standalone.production.js"></script>
 </head>
 <body>
   <header class="top">
     <div class="brand">SCAN</div>
     <form id="searchForm" class="search">
-      <input id="symbol" type="text" spellcheck="false" autocomplete="off" value="NDQ.AX" aria-label="Symbol" />
-      <button type="submit">Load</button>
+      <input id="q" type="text" placeholder="Search ticker or name" autocomplete="off" />
+      <button type="submit">Open</button>
+      <div id="suggest" class="suggest"></div>
     </form>
-    <div class="tf" id="timeframes"></div>
+    <a class="ghost link" href="rules.html">Rules</a>
     <button type="button" id="themeBtn" class="ghost">Light</button>
   </header>
-  <main>
-    <section class="chart-wrap">
-      <div class="meta" id="meta">
-        <div>
-          <h1 id="name">—</h1>
-          <p id="tickerLine" class="muted">pick a symbol</p>
-        </div>
-        <div class="price-block">
-          <div id="lastPrice">—</div>
-          <div id="chg" class="muted"></div>
-        </div>
-      </div>
-      <div id="chart"></div>
-      <p id="status" class="status"></p>
-    </section>
-    <aside>
-      <div class="card">
-        <h2>Fix rules</h2>
-        <p class="hint">Relaxed set. Price rules compute live. Fundamentals need Yahoo modules or a manual mark.</p>
-        <ul id="fixRules" class="rules"></ul>
-        <div class="score" id="fixScore"></div>
-      </div>
-      <div class="card">
-        <h2>Tight rules</h2>
-        <ul id="tightRules" class="rules"></ul>
-        <div class="score" id="tightScore"></div>
-      </div>
-      <div class="card">
-        <h2>Facts</h2>
-        <dl id="facts" class="facts"></dl>
-      </div>
-      <div class="card">
-        <h2>OpenMarket key</h2>
-        <p class="hint">AES-GCM in this browser only. Passphrase never stored. Ciphertext stays in localStorage. Nothing goes to git.</p>
-        <label class="lbl">API key</label>
-        <input id="omKey" type="password" autocomplete="off" />
-        <label class="lbl">Passphrase</label>
-        <input id="omPass" type="password" autocomplete="off" />
-        <label class="lbl">Proxy URL (Cloudflare worker)</label>
-        <input id="omProxy" type="url" placeholder="https://scan-proxy.yourname.workers.dev" />
-        <div class="row">
-          <button type="button" id="omSave">Encrypt &amp; save</button>
-          <button type="button" class="ghost" id="omUnlock">Unlock</button>
-          <button type="button" class="ghost" id="omWipe">Wipe</button>
-        </div>
-        <p class="hint" id="omState">locked / empty</p>
-        <a class="ext" href="https://openmarket.xyz/chart/" target="_blank" rel="noopener">OpenMarket chart</a>
-      </div>
-    </aside>
-  </main>
-  <script src="app.js"></script>
+  <main id="board"></main>
+  <script src="board.js"></script>
 </body>
 </html>
