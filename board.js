@@ -140,15 +140,19 @@ function drawPasses(host) {
   if (state.page > pages - 1) state.page = pages - 1;
   const slice = state.passes.slice(state.page * pageSize, state.page * pageSize + pageSize);
   host.innerHTML = "";
+  const head = document.createElement("div");
+  head.className = "row head";
+  head.innerHTML = "<span>Ticker</span><span>Title</span><span>Scan results</span><span>BabyPips results</span>";
+  host.appendChild(head);
   slice.forEach((row) => {
     const a = document.createElement("a");
     a.className = "row";
     a.href = "https://finance.yahoo.com/quote/" + encodeURIComponent(row.symbol);
     a.target = "_blank";
     a.rel = "noreferrer";
-    const badge = row.signal || "pass";
-    const label = badge === "pass" ? "pass" : badge;
-    a.innerHTML = '<span class="tick">' + row.symbol + '</span><span class="title">' + row.name + '</span><span class="res ' + badge + '">' + label + '</span>';
+    const baby = row.baby || "—";
+    const babyClass = row.baby || "wait";
+    a.innerHTML = '<span class="tick">' + row.symbol + '</span><span class="title">' + row.name + '</span><span class="res pass">pass</span><span class="res ' + babyClass + '">' + baby + '</span>';
     host.appendChild(a);
   });
   return pages;
@@ -185,7 +189,7 @@ async function runScan(ui) {
       const [quote, closes] = await Promise.all([loadQuote(item.symbol), loadCloses(item.symbol)]);
       const checks = fiveChecks(quote, closes, rules);
       if (checks.every(Boolean)) {
-        state.passes.push({ symbol: item.symbol, name: item.name, signal: "pass", closes });
+        state.passes.push({ symbol: item.symbol, name: item.name, baby: "", closes });
         cache.set(item.symbol, closes);
         drawPasses(ui.list);
         ui.pageLabel.textContent = (state.page + 1) + " / " + Math.max(1, Math.ceil(state.passes.length / 10));
@@ -194,7 +198,7 @@ async function runScan(ui) {
     done += 1;
     const avg = (Date.now() - started) / done;
     const left = (universe.length - done) * avg / workers;
-    ui.eta.textContent = "Rules " + done + " / " + universe.length + " · " + state.passes.length + " passed · about " + fmtEta(left) + " left";
+    ui.eta.textContent = "Rules scan " + done + " / " + universe.length + " · " + state.passes.length + " passed · about " + fmtEta(left) + " left";
   }
   async function pump() {
     while (queue.length && !state.abort) {
@@ -204,16 +208,16 @@ async function runScan(ui) {
   }
   ui.eta.textContent = "Scanning top " + universe.length + " by volume";
   await Promise.all(Array.from({ length: workers }, pump));
-  ui.eta.textContent = "Rules done. " + state.passes.length + " passed. BabyPips on those names.";
+  ui.eta.textContent = "Rules scan done. " + state.passes.length + " passed. Starting BabyPips scan.";
   for (let i = 0; i < state.passes.length; i++) {
     const row = state.passes[i];
-    try { row.signal = babySignal(row.closes, rules); } catch (e) { row.signal = "hold"; }
+    ui.eta.textContent = "BabyPips scan " + (i + 1) + " / " + state.passes.length;
+    try { row.baby = babySignal(row.closes, rules); } catch (e) { row.baby = "hold"; }
     delete row.closes;
     drawPasses(ui.list);
-    ui.eta.textContent = "BabyPips " + (i + 1) + " / " + state.passes.length;
   }
   ui.spin.style.display = "none";
-  ui.eta.textContent = "Done. " + state.passes.length + " of " + universe.length + " cleared 5/5.";
+  ui.eta.textContent = "Done. Rules scan " + state.passes.length + " of " + universe.length + ". BabyPips scan finished.";
   ui.btn.disabled = false;
   state.running = false;
 }
