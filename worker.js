@@ -1,24 +1,27 @@
-// Cloudflare Worker. Bind secret OM_KEY in the dashboard.
-const ALLOW = ["https://sam-t-dev.github.io", "https://sam-t-dev.github.io/finance-scan", "http://localhost:4173"];
-function cors(origin) {
-  const allow = ALLOW.some((a) => origin.startsWith("https://sam-t-dev.github.io") || origin.startsWith("http://localhost") || origin.startsWith("http://127.0.0.1")) ? origin : ALLOW[0];
-  return {
-    "Access-Control-Allow-Origin": allow,
-    "Access-Control-Allow-Headers": "content-type",
-    "Access-Control-Allow-Methods": "GET,OPTIONS",
-  };
-}
+const ALLOW_ORIGIN = "*";
+const cors = {
+  "Access-Control-Allow-Origin": ALLOW_ORIGIN,
+  "Access-Control-Allow-Headers": "content-type",
+  "Access-Control-Allow-Methods": "GET,OPTIONS",
+};
 export default {
-  async fetch(req, env) {
-    const origin = req.headers.get("Origin") || "";
-    const headers = cors(origin);
-    if (req.method === "OPTIONS") return new Response(null, { headers });
-    if (!env.OM_KEY) return Response.json({ error: "OM_KEY not bound" }, { status: 500, headers });
-    const incoming = new URL(req.url);
-    const target = new URL("https://api.openmarket.xyz/v1/points");
-    incoming.searchParams.forEach((v, k) => target.searchParams.set(k, v));
-    const up = await fetch(target.toString(), { headers: { "X-OpenMarket-Key": env.OM_KEY } });
-    const body = await up.text();
-    return new Response(body, { status: up.status, headers: { ...headers, "content-type": up.headers.get("content-type") || "application/json" } });
+  async fetch(req) {
+    if (req.method === "OPTIONS") return new Response(null, { headers: cors });
+    const url = new URL(req.url);
+    if (url.pathname.startsWith("/yahoo/chart")) {
+      const symbol = url.searchParams.get("symbol") || "AAPL";
+      const range = url.searchParams.get("range") || "1y";
+      const interval = url.searchParams.get("interval") || "1d";
+      const target = "https://query1.finance.yahoo.com/v8/finance/chart/" + encodeURIComponent(symbol) + "?range=" + range + "&interval=" + interval;
+      const up = await fetch(target, { headers: { "user-agent": "Mozilla/5.0" } });
+      return new Response(await up.text(), { status: up.status, headers: { ...cors, "content-type": "application/json" } });
+    }
+    if (url.pathname.startsWith("/yahoo/quote")) {
+      const symbol = url.searchParams.get("symbol") || url.searchParams.get("symbols") || "AAPL";
+      const target = "https://query1.finance.yahoo.com/v10/finance/quoteSummary/" + encodeURIComponent(symbol) + "?modules=price,summaryDetail,defaultKeyStatistics,financialData,earningsHistory";
+      const up = await fetch(target, { headers: { "user-agent": "Mozilla/5.0" } });
+      return new Response(await up.text(), { status: up.status, headers: { ...cors, "content-type": "application/json" } });
+    }
+    return new Response("scan proxy", { headers: cors });
   },
 };

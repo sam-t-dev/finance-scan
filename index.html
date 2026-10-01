@@ -8,16 +8,20 @@
 </head>
 <body>
   <header class="top">
-    <button type="button" id="menuBtn" class="burger" aria-label="Menu"><span></span><span></span><span></span></button><a class="brand" href="/">SCAN</a>
+    <button type="button" id="menuBtn" class="burger" aria-label="Menu"><span></span><span></span><span></span></button>
+    <a class="brand" href="index.html">SCAN</a>
     <form id="searchForm" class="search">
       <input id="q" type="text" placeholder="Search ticker or name" autocomplete="off" />
       <button type="submit">Open</button>
-      <div id="suggest" class="suggest"></div>
     </form>
   </header>
-  <div id="nav" class="nav"><a href="/">Scan</a><button type="button" id="themeBtn">Light</button><a href="/rules">Settings</a><a href="/about">About</a></div>
-  <div id="tape" class="tape"></div>
-  <div id="lead" class="lead"></div>
+  <div id="nav" class="nav">
+    <a href="index.html">Scan</a>
+    <a href="index.html?cat=Stocks">Stocks</a>
+    <button type="button" id="themeBtn">Light</button>
+    <a href="rules.html">Settings</a>
+    <a href="about.html">About</a>
+  </div>
   <main id="board"></main>
   <script src="board.js"></script>
 </body>

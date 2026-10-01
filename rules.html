@@ -3,19 +3,56 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Rules</title>
+  <title>Settings</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <header class="top">
-    <div class="brand">SCAN</div>
-    <a class="ghost link" href="index.html">Board</a>
-    <button type="button" id="themeBtn" class="ghost">Light</button>
+    <button type="button" id="menuBtn" class="burger" aria-label="Menu"><span></span><span></span><span></span></button>
+    <a class="brand" href="index.html">SCAN</a>
   </header>
+  <div id="nav" class="nav">
+    <a href="index.html">Scan</a>
+    <a href="index.html?cat=Stocks">Stocks</a>
+    <button type="button" id="themeBtn">Light</button>
+    <a href="rules.html">Settings</a>
+    <a href="about.html">About</a>
+  </div>
   <main id="board">
-    <section class="card"><h2>Preset</h2><div class="picks"><button type="button" id="useDefault">Default</button><button type="button" id="save">Save</button></div><p class="muted" id="presetName"></p></section>
-    <section class="card"><h2>Loose rules</h2><label>Trailing P/E under <input id="lpe" type="number" step="0.1" /></label><label>PEG under <input id="lpeg" type="number" step="0.1" /></label><label>EPS beat over % <input id="leps" type="number" step="0.1" /></label><label>D/E under <input id="lde" type="number" step="0.1" /></label><label>YoY revenue over % <input id="lyoy" type="number" step="0.1" /></label></section>
-    <section class="card"><h2>Tight rules</h2><label>Trailing P/E under <input id="tpe" type="number" step="0.1" /></label><label>Forward P/E under <input id="tfpe" type="number" step="0.1" /></label><label>RSI from <input id="trlo" type="number" step="1" /></label><label>RSI to <input id="trhi" type="number" step="1" /></label><label>D/E under <input id="tde" type="number" step="0.1" /></label><label>EPS beat over % <input id="teps" type="number" step="0.1" /></label><label>QoQ revenue over % <input id="tqoq" type="number" step="0.1" /></label></section>
+    <section class="card">
+      <h2>Preset</h2>
+      <div class="pager"><button type="button" id="useDefault">Default</button><button type="button" id="save">Save</button></div>
+      <p class="muted" id="presetName"></p>
+    </section>
+    <section class="card">
+      <h2>Loose rules</h2>
+      <label><span>Trailing P/E under</span><input id="lpe" type="number" step="0.1" /></label>
+      <label><span>PEG under</span><input id="lpeg" type="number" step="0.1" /></label>
+      <label><span>EPS beat over %</span><input id="leps" type="number" step="0.1" /></label>
+      <label><span>D/E under</span><input id="lde" type="number" step="0.1" /></label>
+      <label><span>YoY revenue over %</span><input id="lyoy" type="number" step="0.1" /></label>
+    </section>
+    <section class="card">
+      <h2>Tight rules</h2>
+      <label><span>Trailing P/E under</span><input id="tpe" type="number" step="0.1" /></label>
+      <label><span>Forward P/E under</span><input id="tfpe" type="number" step="0.1" /></label>
+      <label><span>RSI from</span><input id="trlo" type="number" step="1" /></label>
+      <label><span>RSI to</span><input id="trhi" type="number" step="1" /></label>
+      <label><span>D/E under</span><input id="tde" type="number" step="0.1" /></label>
+      <label><span>EPS beat required</span><select id="teps"><option>yes</option><option>no</option></select></label>
+      <label><span>QoQ revenue over %</span><input id="tqoq" type="number" step="0.1" /></label>
+    </section>
+    <section class="card">
+      <h2>BabyPips rules</h2>
+      <p class="muted">Used after a name clears 5/5. From the School of Pipsology checklist: higher-timeframe trend, moving average as support, do not chase RSI, wait for a pullback, risk at least 1:2.</p>
+      <label><span>Trend SMA</span><input id="btrend" type="number" step="1" /></label>
+      <label><span>Higher-timeframe SMA</span><input id="bhigher" type="number" step="1" /></label>
+      <label><span>Slope bars</span><input id="bslope" type="number" step="1" /></label>
+      <label><span>RSI min</span><input id="brlo" type="number" step="1" /></label>
+      <label><span>Do not chase RSI above</span><input id="brhi" type="number" step="1" /></label>
+      <label><span>Pullback within % of 20 SMA</span><input id="bpull" type="number" step="0.1" /></label>
+      <label><span>Minimum reward:risk</span><input id="brr" type="number" step="0.1" /></label>
+    </section>
   </main>
   <script src="rules-page.js"></script>
 </body>

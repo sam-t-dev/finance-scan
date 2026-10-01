@@ -1,9 +1,9 @@
 # Scan
 
-Public rule scanner for stocks, ETFs, indexes, commodities and crypto.
+Stocks page scans the top 1,000 names by volume. A name shows as soon as it clears 5/5. BabyPips then marks buy, hold, or sell. Those BabyPips thresholds sit in Settings.
 
-Live site: https://finance-scan-proxy.samtonin-registry.workers.dev/
+Pages: https://sam-t-dev.github.io/finance-scan/?cat=Stocks
 
-Repo: https://github.com/sam-t-dev/finance-scan
+Worker data: https://finance-scan-proxy.samtonin-registry.workers.dev/
 
-JEPQ is scored as an ETF. Settings are stored in the browser. This is a screen, not advice.
+Screen only. Not advice.
