@@ -2,14 +2,20 @@ const DEFAULT_RULES = {
   name: "default",
   loose: { pe: 35, peg: 1.5, epsBeat: 0.05, de: 1.5, yoy: 0.08 },
   tight: { pe: 25, fpe: 25, rsiLow: 30, rsiHigh: 70, de: 1, epsBeat: "yes", qoq: 0.05 },
-  babypips: { trendMa: 50, higherMa: 200, slopeBars: 5, rsiMin: 30, rsiChase: 70, pullbackPct: 3, rrMin: 2 }
+  babypips: { trendMa: 50, higherMa: 200, slopeBars: 5, rsiMin: 30, rsiChase: 70, pullbackPct: 8, rrMin: 1.5, rewardBars: 126 }
 };
 function loadRules() {
   try {
     const s = JSON.parse(localStorage.getItem("scan-rules") || "null");
     if (s && s.loose) {
       const base = JSON.parse(JSON.stringify(DEFAULT_RULES));
-      return Object.assign(base, s, { babypips: Object.assign(base.babypips, s.babypips || {}) });
+      const baby = Object.assign(base.babypips, s.babypips || {});
+      if (!s.babypips || s.babypips.rewardBars == null) {
+        baby.pullbackPct = base.babypips.pullbackPct;
+        baby.rrMin = base.babypips.rrMin;
+        baby.rewardBars = base.babypips.rewardBars;
+      }
+      return Object.assign(base, s, { babypips: baby });
     }
   } catch (e) {}
   return JSON.parse(JSON.stringify(DEFAULT_RULES));
@@ -34,6 +40,7 @@ function fill(r) {
   document.getElementById("brhi").value = r.babypips.rsiChase;
   document.getElementById("bpull").value = r.babypips.pullbackPct;
   document.getElementById("brr").value = r.babypips.rrMin;
+  document.getElementById("breward").value = r.babypips.rewardBars || 126;
   document.getElementById("presetName").textContent = r.name === "default" ? "Default values" : "Custom values";
 }
 const theme = localStorage.getItem("scan-theme") || "dark";
@@ -57,7 +64,7 @@ document.getElementById("save").onclick = () => {
     name: "custom",
     loose: { pe: Number(document.getElementById("lpe").value), peg: Number(document.getElementById("lpeg").value), epsBeat: Number(document.getElementById("leps").value) / 100, de: Number(document.getElementById("lde").value), yoy: Number(document.getElementById("lyoy").value) / 100 },
     tight: { pe: Number(document.getElementById("tpe").value), fpe: Number(document.getElementById("tfpe").value), rsiLow: Number(document.getElementById("trlo").value), rsiHigh: Number(document.getElementById("trhi").value), de: Number(document.getElementById("tde").value), epsBeat: document.getElementById("teps").value, qoq: Number(document.getElementById("tqoq").value) / 100 },
-    babypips: { trendMa: Number(document.getElementById("btrend").value), higherMa: Number(document.getElementById("bhigher").value), slopeBars: Number(document.getElementById("bslope").value), rsiMin: Number(document.getElementById("brlo").value), rsiChase: Number(document.getElementById("brhi").value), pullbackPct: Number(document.getElementById("bpull").value), rrMin: Number(document.getElementById("brr").value) }
+    babypips: { trendMa: Number(document.getElementById("btrend").value), higherMa: Number(document.getElementById("bhigher").value), slopeBars: Number(document.getElementById("bslope").value), rsiMin: Number(document.getElementById("brlo").value), rsiChase: Number(document.getElementById("brhi").value), pullbackPct: Number(document.getElementById("bpull").value), rrMin: Number(document.getElementById("brr").value), rewardBars: Number(document.getElementById("breward").value) }
   };
   localStorage.setItem("scan-rules", JSON.stringify(rules));
   document.getElementById("presetName").textContent = "Saved";
