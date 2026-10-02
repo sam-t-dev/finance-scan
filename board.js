@@ -2,7 +2,7 @@ const DEFAULT_RULES = {
   name: "default",
   loose: { pe: 35, peg: 1.5, epsBeat: 0.05, de: 1.5, yoy: 0.08 },
   tight: { pe: 25, fpe: 25, rsiLow: 30, rsiHigh: 70, de: 1, epsBeat: "yes", qoq: 0.05 },
-  babypips: { trendMa: 50, higherMa: 200, slopeBars: 5, rsiMin: 30, rsiChase: 70, pullbackPct: 3, rrMin: 2 }
+  babypips: { trendMa: 50, higherMa: 200, slopeBars: 5, rsiMin: 30, rsiChase: 70, pullbackPct: 8, rrMin: 1.5, rewardBars: 126 }
 };
 
 function loadRules() {
@@ -10,7 +10,13 @@ function loadRules() {
     const s = JSON.parse(localStorage.getItem("scan-rules") || "null");
     if (s && s.loose) {
       const base = JSON.parse(JSON.stringify(DEFAULT_RULES));
-      return Object.assign(base, s, { babypips: Object.assign(base.babypips, s.babypips || {}) });
+      const baby = Object.assign(base.babypips, s.babypips || {});
+      if (!s.babypips || s.babypips.rewardBars == null) {
+        baby.pullbackPct = base.babypips.pullbackPct;
+        baby.rrMin = base.babypips.rrMin;
+        baby.rewardBars = base.babypips.rewardBars;
+      }
+      return Object.assign(base, s, { babypips: baby });
     }
   } catch (e) {}
   return JSON.parse(JSON.stringify(DEFAULT_RULES));
@@ -103,22 +109,23 @@ function fiveChecks(row, closes, rules) {
 function babySignal(closes, rules) {
   const b = rules.babypips;
   const last = closes[closes.length - 1];
-  const ma20 = sma(closes, 20);
   const trend = sma(closes, b.trendMa);
   const higher = sma(closes, b.higherMa);
   const trendSlope = slope(closes, b.trendMa, b.slopeBars);
   const r = rsi(closes, 14);
-  const pullback = ma20 != null && Math.abs(last - ma20) / ma20 * 100 <= b.pullbackPct;
-  const swingLow = Math.min(...closes.slice(-20));
-  const swingHigh = Math.max(...closes.slice(-60));
-  const risk = last - swingLow;
+  const bars = b.rewardBars || 126;
+  const window = closes.slice(-bars);
+  const swingHigh = Math.max(...window);
+  const dist = trend != null && trend > 0 ? (last - trend) / trend * 100 : null;
+  const pullback = dist != null && dist >= 0 && dist <= b.pullbackPct;
+  const risk = trend != null ? last - trend : 0;
   const reward = swingHigh - last;
   const rr = risk > 0 ? reward / risk : 0;
   const up = trend != null && last > trend && trendSlope != null && trendSlope > 0 && (higher == null || last > higher);
   const down = trend != null && last < trend && trendSlope != null && trendSlope < 0;
   const notChase = r != null && r >= b.rsiMin && r <= b.rsiChase;
   const buy = up && notChase && pullback && rr >= b.rrMin;
-  const sell = down && (r == null || r > b.rsiChase || (ma20 != null && last < ma20));
+  const sell = down && (higher != null && last < higher);
   if (buy) return "buy";
   if (sell) return "sell";
   return "hold";

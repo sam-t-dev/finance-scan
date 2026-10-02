@@ -44,14 +44,15 @@
     </section>
     <section class="card">
       <h2>BabyPips rules</h2>
-      <p class="muted">Used after a name clears 5/5. From the School of Pipsology checklist: higher-timeframe trend, moving average as support, do not chase RSI, wait for a pullback, risk at least 1:2.</p>
+      <p class="muted">Week-plus swing, not a day trade. Trend is the 50 and 200. A buy needs price within the pullback band above the 50, RSI not chased, and room up to the reward high at least the minimum reward:risk. Stop is a close back under the 50.</p>
       <label><span>Trend SMA</span><input id="btrend" type="number" step="1" /></label>
       <label><span>Higher-timeframe SMA</span><input id="bhigher" type="number" step="1" /></label>
       <label><span>Slope bars</span><input id="bslope" type="number" step="1" /></label>
       <label><span>RSI min</span><input id="brlo" type="number" step="1" /></label>
       <label><span>Do not chase RSI above</span><input id="brhi" type="number" step="1" /></label>
-      <label><span>Pullback within % of 20 SMA</span><input id="bpull" type="number" step="0.1" /></label>
+      <label><span>Pullback within % above the 50 SMA</span><input id="bpull" type="number" step="0.1" /></label>
       <label><span>Minimum reward:risk</span><input id="brr" type="number" step="0.1" /></label>
+      <label><span>Reward lookback, sessions</span><input id="breward" type="number" step="1" /></label>
     </section>
   </main>
   <script src="rules-page.js"></script>
