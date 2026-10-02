@@ -154,9 +154,7 @@ function drawPasses(host) {
   slice.forEach((row) => {
     const a = document.createElement("a");
     a.className = "row";
-    a.href = "https://finance.yahoo.com/quote/" + encodeURIComponent(row.symbol);
-    a.target = "_blank";
-    a.rel = "noreferrer";
+    a.href = "index.html?symbol=" + encodeURIComponent(row.symbol) + "&name=" + encodeURIComponent(row.name);
     const baby = row.baby || "—";
     const babyClass = row.baby || "wait";
     a.innerHTML = '<span class="tick">' + row.symbol + '</span><span class="title">' + row.name + '</span><span class="res pass">pass</span><span class="res ' + babyClass + '">' + baby + '</span>';
@@ -293,5 +291,82 @@ document.getElementById("searchForm").onsubmit = (e) => {
   if (q) window.open("https://finance.yahoo.com/quote/" + encodeURIComponent(q.toUpperCase()), "_blank");
 };
 
-if (new URLSearchParams(location.search).get("cat") === "Stocks") drawStocks();
+function explain(closes, rules) {
+  const b = rules.babypips;
+  const last = closes[closes.length - 1];
+  const trend = sma(closes, b.trendMa);
+  const higher = sma(closes, b.higherMa);
+  const trendSlope = slope(closes, b.trendMa, b.slopeBars);
+  const r = rsi(closes, 14);
+  const bars = b.rewardBars || 126;
+  const swingHigh = Math.max(...closes.slice(-bars));
+  const dist = trend ? (last - trend) / trend * 100 : null;
+  const risk = trend != null ? last - trend : 0;
+  const reward = swingHigh - last;
+  const rr = risk > 0 ? reward / risk : 0;
+  const signal = babySignal(closes, rules);
+  const lines = [];
+  lines.push(signal === "buy" ? "Buy, because the week-plus checklist cleared." : signal === "sell" ? "Sell, because the longer trend has broken." : "Hold, because at least one entry box failed.");
+  lines.push("Price is " + last.toFixed(2) + ". The 50-day is " + (trend ? trend.toFixed(2) : "missing") + " and the 200-day is " + (higher ? higher.toFixed(2) : "missing") + ".");
+  lines.push(trendSlope > 0 ? "The 50-day is rising, so the trend gate passes." : "The 50-day is not rising, so the trend gate fails.");
+  lines.push(dist != null && dist >= 0 && dist <= b.pullbackPct ? "It is " + dist.toFixed(1) + "% above the 50-day, inside the " + b.pullbackPct + "% pullback band." : "It is " + (dist == null ? "not" : dist.toFixed(1) + "%") + " above the 50-day, outside the " + b.pullbackPct + "% pullback band.");
+  lines.push(r != null && r >= b.rsiMin && r <= b.rsiChase ? "RSI is " + r.toFixed(0) + ", not chased." : "RSI is " + (r == null ? "missing" : r.toFixed(0)) + ", outside " + b.rsiMin + " to " + b.rsiChase + ".");
+  lines.push("Stop is a close under the 50-day, " + risk.toFixed(2) + " away. The " + bars + "-session high is " + swingHigh.toFixed(2) + ", " + reward.toFixed(2) + " above. Reward to risk is " + rr.toFixed(1) + " against a minimum of " + b.rrMin + ".");
+  return { signal, lines, last, trend, higher, swingHigh, closes };
+}
+
+function drawChart(canvas, pack) {
+  const ctx = canvas.getContext("2d");
+  const w = canvas.width = canvas.clientWidth * 2;
+  const h = canvas.height = canvas.clientHeight * 2;
+  const closes = pack.closes.slice(-180);
+  const series = [closes];
+  const s50 = closes.map((_, i) => sma(pack.closes.slice(0, pack.closes.length - closes.length + i + 1), 50));
+  const s200 = closes.map((_, i) => sma(pack.closes.slice(0, pack.closes.length - closes.length + i + 1), 200));
+  const vals = closes.concat(s50.filter(Boolean), s200.filter(Boolean), [pack.swingHigh]);
+  const lo = Math.min(...vals), hi = Math.max(...vals);
+  const pad = (hi - lo) * 0.08 || 1;
+  function X(i) { return 24 + (w - 36) * i / Math.max(1, closes.length - 1); }
+  function Y(v) { return 16 + (h - 32) * (1 - (v - (lo - pad)) / (hi - lo + pad * 2)); }
+  ctx.clearRect(0, 0, w, h);
+  ctx.fillStyle = "#0b0b0c";
+  ctx.fillRect(0, 0, w, h);
+  ctx.strokeStyle = "#c9a227";
+  ctx.setLineDash([8, 8]);
+  ctx.beginPath(); ctx.moveTo(24, Y(pack.swingHigh)); ctx.lineTo(w - 12, Y(pack.swingHigh)); ctx.stroke();
+  ctx.setLineDash([]);
+  function line(arr, color) {
+    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath();
+    arr.forEach((v, i) => { if (v == null) return; const x = X(i), y = Y(v); if (i === 0 || arr[i - 1] == null) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
+    ctx.stroke();
+  }
+  line(closes, "#ececec");
+  line(s50, "#3dd68c");
+  line(s200, "#6ea8ff");
+  ctx.fillStyle = "#3dd68c";
+  ctx.beginPath(); ctx.arc(X(closes.length - 1), Y(closes[closes.length - 1]), 5, 0, 7); ctx.fill();
+}
+
+async function drawSymbol(symbol, name) {
+  const board = document.getElementById("board");
+  board.innerHTML = "";
+  const card = document.createElement("section");
+  card.className = "card";
+  card.innerHTML = "<div class='sec-head'><h2>" + symbol + "</h2><a class='ghost link' href='index.html?cat=Stocks'>Back</a></div><h1>" + (name || symbol) + "</h1><p class='muted' id='whyStatus'>Loading the chart.</p><canvas id='chartBox'></canvas><div id='why'></div>";
+  board.appendChild(card);
+  try {
+    const closes = await loadCloses(symbol);
+    const pack = explain(closes, loadRules());
+    document.getElementById("whyStatus").textContent = pack.signal.toUpperCase();
+    document.getElementById("whyStatus").className = "res " + pack.signal;
+    const why = document.getElementById("why");
+    pack.lines.forEach((line) => { const p = document.createElement("p"); p.className = "why"; p.textContent = line; why.appendChild(p); });
+    drawChart(document.getElementById("chartBox"), pack);
+  } catch (e) {
+    document.getElementById("whyStatus").textContent = "No chart data.";
+  }
+}
+
+if (new URLSearchParams(location.search).get("symbol")) drawSymbol(new URLSearchParams(location.search).get("symbol"), new URLSearchParams(location.search).get("name"));
+else if (new URLSearchParams(location.search).get("cat") === "Stocks") drawStocks();
 else drawHome();
