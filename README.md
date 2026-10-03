@@ -12,6 +12,8 @@ Worker: https://finance-scan-proxy.samtonin-registry.workers.dev/?cat=Stocks
 
 The home board is four boxes: Scanners, Stocks, ETFs, Commodities. Under them are the 20 most traded names, ordered by share volume over the last 7 sessions when the chart feed answers, otherwise by the volume stored on the universe list. Arrows reverse that list of 20.
 
+Each wide box shows the ticker and name, and the last price with today's change from that same chart feed. Green is up and red is down. Prices are left blank when the chart feed does not answer. The quote summary path is not used here, because the proxy returns 401 Invalid Crumb.
+
 A stocks scan stays in this browser tab so Back and a stock page do not clear it. Search is the text field only and lists matches after 3 characters. A stock page has a zoomable chart, the loose, tight, technical, confidence, size, and next-event lines, and a Yahoo Finance link.
 
 Screen only. Not advice.
