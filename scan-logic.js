@@ -343,3 +343,93 @@ function explainPack(closes, rules) {
   pack.lines = lines;
   return pack;
 }
+
+const SCAN_STORE = "scan-stocks-v1";
+
+function sumLastVolumes(volumes, days) {
+  const nums = (volumes || []).filter((v) => v != null && Number.isFinite(Number(v))).map(Number);
+  const slice = nums.slice(-(days || 7));
+  if (!slice.length) return null;
+  let s = 0;
+  for (let i = 0; i < slice.length; i++) s += slice[i];
+  return s;
+}
+
+function topByTraded(list, limit) {
+  return list.slice().sort((a, b) => (b.traded || 0) - (a.traded || 0) || String(a.symbol).localeCompare(String(b.symbol))).slice(0, limit);
+}
+
+function sortByTraded(list, dir) {
+  const sign = dir === "up" ? 1 : -1;
+  return list.slice().sort((a, b) => sign * ((a.traded || 0) - (b.traded || 0)) || String(a.symbol).localeCompare(String(b.symbol)));
+}
+
+function searchUniverse(list, q) {
+  const s = String(q || "").trim().toLowerCase();
+  if (s.length < 3) return [];
+  const out = [];
+  for (let i = 0; i < list.length; i++) {
+    const item = list[i];
+    const sym = String(item.symbol || "").toLowerCase();
+    const name = String(item.name || "").toLowerCase();
+    if (sym.indexOf(s) !== -1 || name.indexOf(s) !== -1) out.push(item);
+    if (out.length >= 12) break;
+  }
+  return out;
+}
+
+function formatVolume(n) {
+  if (n == null || !Number.isFinite(n)) return "";
+  if (n >= 1e9) return (n / 1e9).toFixed(1) + "B";
+  if (n >= 1e6) return (n / 1e6).toFixed(1) + "M";
+  if (n >= 1e3) return (n / 1e3).toFixed(0) + "K";
+  return String(Math.round(n));
+}
+
+function zoomWindow(start, end, len, t, zoomIn) {
+  const span = Math.max(1, end - start);
+  const anchorT = t == null ? 0.5 : t;
+  let nspan = Math.round(span * (zoomIn ? 0.8 : 1.25));
+  if (nspan < 15) nspan = 15;
+  if (nspan > len) nspan = len;
+  const anchor = start + span * anchorT;
+  let ns = Math.round(anchor - nspan * anchorT);
+  let ne = ns + nspan;
+  if (ns < 0) { ne -= ns; ns = 0; }
+  if (ne > len) { ns -= ne - len; ne = len; }
+  if (ns < 0) ns = 0;
+  return { start: ns, end: ne };
+}
+
+function panWindow(start, end, len, bars) {
+  let ns = start + bars;
+  let ne = end + bars;
+  const span = end - start;
+  if (ns < 0) { ns = 0; ne = span; }
+  if (ne > len) { ne = len; ns = len - span; }
+  if (ns < 0) ns = 0;
+  return { start: ns, end: ne };
+}
+
+function scanPayload(passes, page, sortKey, sortDir) {
+  return {
+    passes: (passes || []).map((r) => ({
+      order: r.order,
+      symbol: r.symbol,
+      name: r.name,
+      loosePass: !!r.loosePass,
+      tightPass: !!r.tightPass,
+      baby: r.baby || "",
+      confidence: r.confidence == null ? null : r.confidence,
+      size: r.size || null,
+      event: r.event || null
+    })),
+    page: page || 0,
+    sortKey: sortKey || null,
+    sortDir: sortDir || "up"
+  };
+}
+
+function yahooQuoteUrl(symbol) {
+  return "https://finance.yahoo.com/quote/" + encodeURIComponent(symbol);
+}

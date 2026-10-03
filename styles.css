@@ -4,11 +4,12 @@ html[data-theme="light"] { --bg:#f4f4f1; --panel:#fff; --line:#ddd; --text:#1616
 html, body { margin:0; background:var(--bg); color:var(--text); font:15px/1.4 -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif; }
 .top { display:flex; gap:12px; align-items:center; flex-wrap:wrap; padding:12px 16px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--bg); z-index:4; }
 .brand { letter-spacing:.18em; font-weight:700; font-size:13px; color:inherit; text-decoration:none; }
-.search { position:relative; display:flex; gap:6px; width:240px; max-width:46vw; }
+.search { position:relative; display:flex; gap:6px; width:280px; max-width:70vw; }
+.search input { width:100%; }
 .search input, label input, select { background:var(--panel); color:var(--text); border:1px solid var(--line); padding:8px 10px; border-radius:8px; font:inherit; }
 button, .link { background:var(--text); color:var(--bg); border:0; border-radius:8px; padding:8px 12px; cursor:pointer; text-decoration:none; font:inherit; }
 .ghost { background:transparent; color:var(--text); border:1px solid var(--line); }
-.suggest { position:absolute; left:0; right:72px; top:40px; background:var(--panel); border:1px solid var(--line); border-radius:8px; z-index:6; display:none; }
+.suggest { position:absolute; left:0; right:0; top:42px; background:var(--panel); border:1px solid var(--line); border-radius:8px; z-index:6; display:none; max-height:280px; overflow:auto; }
 .suggest a { display:block; padding:8px 10px; color:inherit; text-decoration:none; border-bottom:1px solid var(--line); }
 #chartBox { width:100%; height:280px; background:#0b0b0c; border:1px solid var(--line); border-radius:12px; }
 .why { margin:8px 0; }
@@ -53,3 +54,19 @@ label span { display:block; color:var(--muted); font-size:12px; margin-bottom:4p
 .cats { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
 .cats a { display:block; padding:12px; border:1px solid var(--line); border-radius:10px; color:inherit; text-decoration:none; }
 @media (max-width:640px) { .cats { grid-template-columns:1fr; } }
+
+.cats.home { grid-template-columns:repeat(4,1fr); margin-bottom:8px; }
+.wide-head { display:flex; justify-content:space-between; align-items:center; gap:8px; margin-top:16px; }
+.wides { display:flex; flex-direction:column; }
+.wide { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:12px 14px; margin-top:8px; border:1px solid var(--line); border-radius:10px; color:inherit; text-decoration:none; }
+.wide b { font-size:16px; }
+.facts { margin:12px 0 0; display:grid; grid-template-columns:1fr auto; gap:6px 12px; font-size:14px; }
+.facts dt { color:var(--muted); }
+.facts dd { margin:0; text-align:right; font-weight:650; }
+.facts dd.pass, .facts dd.buy, .facts dd.beat { color:var(--pass); }
+.facts dd.fail, .facts dd.sell, .facts dd.miss { color:var(--fail); }
+.facts dd.hold { color:var(--wait); }
+.price { font-size:28px; margin:6px 0; font-variant-numeric:tabular-nums; }
+.chart-hint { font-size:12px; margin:6px 0 0; }
+#chartBox { touch-action:none; cursor:grab; }
+@media (max-width:720px) { .cats.home { grid-template-columns:1fr 1fr; } }

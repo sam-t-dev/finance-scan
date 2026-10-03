@@ -64,6 +64,7 @@ function paintList(list, pageLabel) {
     list.appendChild(a);
   });
   if (pageLabel) pageLabel.textContent = pageLabelText(win.page, win.pages, rows.length);
+  saveScan();
   return win;
 }
 
@@ -225,6 +226,26 @@ async function runScan(ui) {
   ui.eta.textContent = "Done. Loose scan " + state.passes.length + " of " + universe.length + ". Technical scan finished.";
   ui.btn.disabled = false;
   state.running = false;
+  saveScan();
+}
+
+function saveScan() {
+  try {
+    const payload = scanPayload(state.passes, state.page, state.sortKey, state.sortDir);
+    sessionStorage.setItem(SCAN_STORE, JSON.stringify(payload));
+  } catch (e) {}
+}
+
+function restoreScan() {
+  try {
+    const data = JSON.parse(sessionStorage.getItem(SCAN_STORE) || "null");
+    if (!data || !Array.isArray(data.passes) || !data.passes.length) return false;
+    state.passes = data.passes;
+    state.page = data.page || 0;
+    state.sortKey = data.sortKey || null;
+    state.sortDir = data.sortDir || "up";
+    return true;
+  } catch (e) { return false; }
 }
 
 function drawHome() {
@@ -232,7 +253,94 @@ function drawHome() {
   board.innerHTML = "";
   const card = document.createElement("section");
   card.className = "card";
-  card.innerHTML = "<h2>Board</h2><div class='cats'><a href='index.html?cat=Stocks'><b>Stocks</b><div class='muted'>Scan top 1,000 by volume</div></a></div>";
+  const h = document.createElement("h2");
+  h.textContent = "Board";
+  const cats = document.createElement("div");
+  cats.className = "cats home";
+  [
+    ["Scanners", "index.html?cat=Scanners", "Open a scan"],
+    ["Stocks", "index.html?cat=Stocks", "Top 1,000 by volume"],
+    ["ETFs", "index.html?cat=ETFs", "No scan yet"],
+    ["Commodities", "index.html?cat=Commodities", "No scan yet"]
+  ].forEach((item) => {
+    const a = document.createElement("a");
+    a.href = item[1];
+    a.innerHTML = "<b>" + esc(item[0]) + "</b><div class='muted'>" + esc(item[2]) + "</div>";
+    cats.appendChild(a);
+  });
+  const head = document.createElement("div");
+  head.className = "wide-head";
+  const title = document.createElement("span");
+  title.className = "htitle";
+  title.textContent = "Most traded, 7 days";
+  const up = document.createElement("button");
+  up.type = "button"; up.className = "arr"; up.textContent = "\u25b2"; up.setAttribute("aria-label", "least traded first");
+  const down = document.createElement("button");
+  down.type = "button"; down.className = "arr"; down.textContent = "\u25bc"; down.setAttribute("aria-label", "most traded first");
+  title.append(up, down);
+  const note = document.createElement("span");
+  note.className = "muted";
+  note.textContent = "Top 20";
+  head.append(title, note);
+  const list = document.createElement("div");
+  list.className = "wides";
+  card.append(h, cats, head, list);
+  board.appendChild(card);
+  const home = { rows: [], dir: "down", label: "listed volume" };
+  function paint() {
+    const ordered = sortByTraded(home.rows, home.dir);
+    list.innerHTML = "";
+    ordered.forEach((row) => {
+      const a = document.createElement("a");
+      a.className = "wide";
+      a.href = "index.html?symbol=" + encodeURIComponent(row.symbol) + "&name=" + encodeURIComponent(row.name);
+      a.innerHTML = "<span><b>" + esc(row.symbol) + "</b> <span class='muted'>" + esc(row.name) + "</span></span><span class='muted'>" + esc(formatVolume(row.traded)) + "</span>";
+      list.appendChild(a);
+    });
+    note.textContent = "Top " + ordered.length + " · " + home.label;
+  }
+  up.onclick = () => { home.dir = "up"; paint(); };
+  down.onclick = () => { home.dir = "down"; paint(); };
+  getJson("universe.json").then(async (universe) => {
+    const seed = topByTraded((universe || []).map((row) => ({ symbol: row.symbol, name: row.name, traded: Number(row.volume) || 0 })), 40);
+    home.rows = seed.slice(0, 20);
+    home.label = "listed volume";
+    paint();
+    const ranked = [];
+    const queue = seed.slice();
+    async function one() {
+      while (queue.length) {
+        const row = queue.shift();
+        let traded = row.traded;
+        try {
+          const chart = await getJson(apiBase() + "/yahoo/chart?symbol=" + encodeURIComponent(row.symbol) + "&range=1mo&interval=1d");
+          const vol = chart.chart.result[0].indicators.quote[0].volume || [];
+          const sum = sumLastVolumes(vol, 7);
+          if (sum != null) traded = sum;
+        } catch (e) {}
+        ranked.push({ symbol: row.symbol, name: row.name, traded });
+      }
+    }
+    await Promise.all([one(), one(), one(), one()]);
+    const seven = ranked.filter((row) => row.traded != null);
+    if (seven.length) {
+      home.rows = topByTraded(seven, 20);
+      home.label = "last 7 sessions";
+      paint();
+    }
+  }).catch(() => { note.textContent = "Could not load the universe list."; });
+}
+
+function drawCategory(cat) {
+  const board = document.getElementById("board");
+  board.innerHTML = "";
+  const card = document.createElement("section");
+  card.className = "card";
+  if (cat === "Scanners") {
+    card.innerHTML = "<div class='sec-head'><h2>Scanners</h2><a class='ghost link' href='index.html'>Back</a></div><div class='wides'><a class='wide' href='index.html?cat=Stocks'><span><b>Stocks</b> <span class='muted'>Loose 5/5 gate, then technical analysis</span></span><span class='muted'>Top 1,000</span></a></div>";
+  } else {
+    card.innerHTML = "<div class='sec-head'><h2>" + esc(cat) + "</h2><a class='ghost link' href='index.html'>Back</a></div><p class='muted'>No scan yet. Names are not invented here.</p>";
+  }
   board.appendChild(card);
 }
 
@@ -283,6 +391,10 @@ function drawStocks() {
   bar.appendChild(btn);
   board.appendChild(card);
   buildHead(list);
+  if (restoreScan()) {
+    paintList(list, pageLabelEl);
+    eta.textContent = "Saved scan restored. " + state.passes.length + " names. Press Scan to run it again.";
+  }
   btn.onclick = () => runScan({ btn, spin, eta, list, pageLabel: pageLabelEl });
 }
 
@@ -296,41 +408,109 @@ document.getElementById("themeBtn").onclick = () => {
   document.getElementById("themeBtn").textContent = n === "dark" ? "Light" : "Dark";
 };
 document.getElementById("menuBtn").onclick = () => document.getElementById("nav").classList.toggle("open");
-document.getElementById("searchForm").onsubmit = (e) => {
-  e.preventDefault();
-  const q = document.getElementById("q").value.trim();
-  if (q) window.open("https://finance.yahoo.com/quote/" + encodeURIComponent(q.toUpperCase()), "_blank");
-};
+
+const searchForm = document.getElementById("searchForm");
+const searchBox = document.getElementById("q");
+const suggest = document.getElementById("suggest");
+let universeCache = null;
+searchForm.onsubmit = (e) => e.preventDefault();
+searchBox.addEventListener("input", async () => {
+  const q = searchBox.value.trim();
+  suggest.innerHTML = "";
+  if (q.length < 3) { suggest.style.display = "none"; return; }
+  if (!universeCache) {
+    try { universeCache = await getJson("universe.json"); } catch (e) { universeCache = []; }
+  }
+  const hits = searchUniverse(universeCache, q);
+  if (!hits.length) { suggest.style.display = "none"; return; }
+  hits.forEach((hit) => {
+    const a = document.createElement("a");
+    a.href = "index.html?symbol=" + encodeURIComponent(hit.symbol) + "&name=" + encodeURIComponent(hit.name);
+    a.textContent = hit.symbol + " — " + hit.name;
+    suggest.appendChild(a);
+  });
+  suggest.style.display = "block";
+});
+document.addEventListener("click", (e) => {
+  if (!searchForm.contains(e.target)) suggest.style.display = "none";
+});
 
 function drawChart(canvas, pack) {
-  const ctx = canvas.getContext("2d");
-  const w = canvas.width = canvas.clientWidth * 2;
-  const h = canvas.height = canvas.clientHeight * 2;
-  const closes = pack.closes.slice(-180);
-  const s50 = closes.map((_, i) => sma(pack.closes.slice(0, pack.closes.length - closes.length + i + 1), 50));
-  const s200 = closes.map((_, i) => sma(pack.closes.slice(0, pack.closes.length - closes.length + i + 1), 200));
-  const vals = closes.concat(s50.filter(Boolean), s200.filter(Boolean), [pack.swingHigh]);
-  const lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
-  const pad = (hi - lo) * 0.08 || 1;
-  function X(i) { return 24 + (w - 36) * i / Math.max(1, closes.length - 1); }
-  function Y(v) { return 16 + (h - 32) * (1 - (v - (lo - pad)) / (hi - lo + pad * 2)); }
-  ctx.clearRect(0, 0, w, h);
-  ctx.fillStyle = "#0b0b0c";
-  ctx.fillRect(0, 0, w, h);
-  ctx.strokeStyle = "#c9a227";
-  ctx.setLineDash([8, 8]);
-  ctx.beginPath(); ctx.moveTo(24, Y(pack.swingHigh)); ctx.lineTo(w - 12, Y(pack.swingHigh)); ctx.stroke();
-  ctx.setLineDash([]);
-  function line(arr, color) {
-    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath();
-    arr.forEach((v, i) => { if (v == null) return; const x = X(i), y = Y(v); if (i === 0 || arr[i - 1] == null) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
-    ctx.stroke();
+  const full = pack.closes;
+  const view = { start: Math.max(0, full.length - 180), end: full.length };
+  let drag = null;
+  function draw() {
+    const ctx = canvas.getContext("2d");
+    const w = canvas.width = canvas.clientWidth * 2;
+    const h = canvas.height = canvas.clientHeight * 2;
+    const closes = full.slice(view.start, view.end);
+    const s50 = closes.map((_, i) => sma(full.slice(0, view.start + i + 1), 50));
+    const s200 = closes.map((_, i) => sma(full.slice(0, view.start + i + 1), 200));
+    const vals = closes.concat(s50.filter(Boolean), s200.filter(Boolean));
+    if (pack.swingHigh != null) vals.push(pack.swingHigh);
+    const lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+    const pad = (hi - lo) * 0.08 || 1;
+    function X(i) { return 24 + (w - 36) * i / Math.max(1, closes.length - 1); }
+    function Y(v) { return 16 + (h - 32) * (1 - (v - (lo - pad)) / (hi - lo + pad * 2)); }
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = "#0b0b0c";
+    ctx.fillRect(0, 0, w, h);
+    if (pack.swingHigh != null) {
+      ctx.strokeStyle = "#c9a227";
+      ctx.setLineDash([8, 8]);
+      ctx.beginPath(); ctx.moveTo(24, Y(pack.swingHigh)); ctx.lineTo(w - 12, Y(pack.swingHigh)); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    function line(arr, color) {
+      ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath();
+      arr.forEach((v, i) => { if (v == null) return; const x = X(i), y = Y(v); if (i === 0 || arr[i - 1] == null) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
+      ctx.stroke();
+    }
+    line(closes, "#ececec");
+    line(s50, "#3dd68c");
+    line(s200, "#6ea8ff");
+    ctx.fillStyle = "#3dd68c";
+    ctx.beginPath(); ctx.arc(X(closes.length - 1), Y(closes[closes.length - 1]), 5, 0, 7); ctx.fill();
   }
-  line(closes, "#ececec");
-  line(s50, "#3dd68c");
-  line(s200, "#6ea8ff");
-  ctx.fillStyle = "#3dd68c";
-  ctx.beginPath(); ctx.arc(X(closes.length - 1), Y(closes[closes.length - 1]), 5, 0, 7); ctx.fill();
+  canvas.onwheel = (e) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const t = rect.width ? (e.clientX - rect.left) / rect.width : 0.5;
+    const next = zoomWindow(view.start, view.end, full.length, Math.min(1, Math.max(0, t)), e.deltaY < 0);
+    view.start = next.start;
+    view.end = next.end;
+    draw();
+  };
+  canvas.onpointerdown = (e) => {
+    drag = { x: e.clientX, start: view.start, end: view.end };
+    canvas.setPointerCapture(e.pointerId);
+  };
+  canvas.onpointermove = (e) => {
+    if (!drag) return;
+    const rect = canvas.getBoundingClientRect();
+    const span = drag.end - drag.start;
+    const bars = Math.round((drag.x - e.clientX) / Math.max(1, rect.width) * span);
+    const next = panWindow(drag.start, drag.end, full.length, bars);
+    view.start = next.start;
+    view.end = next.end;
+    draw();
+  };
+  canvas.onpointerup = () => { drag = null; };
+  canvas.ondblclick = () => {
+    view.start = Math.max(0, full.length - 180);
+    view.end = full.length;
+    draw();
+  };
+  draw();
+}
+
+function summaryRow(dl, label, value, cls) {
+  const dt = document.createElement("dt");
+  dt.textContent = label;
+  const dd = document.createElement("dd");
+  dd.textContent = value;
+  if (cls) dd.className = cls;
+  dl.append(dt, dd);
 }
 
 async function drawSymbol(symbol, name) {
@@ -338,21 +518,49 @@ async function drawSymbol(symbol, name) {
   board.innerHTML = "";
   const card = document.createElement("section");
   card.className = "card";
-  card.innerHTML = "<div class='sec-head'><h2>" + esc(symbol) + "</h2><a class='ghost link' href='index.html?cat=Stocks'>Back</a></div><h1>" + esc(name || symbol) + "</h1><p class='muted' id='whyStatus'>Loading the chart.</p><canvas id='chartBox'></canvas><div id='why'></div>";
+  card.innerHTML = "<div class='sec-head'><h2>" + esc(symbol) + "</h2><a class='ghost link' href='index.html?cat=Stocks'>Back</a></div><h1>" + esc(name || symbol) + "</h1><p class='price' id='lastPrice'>—</p><p><a class='ghost link' id='yahooLink' href='" + esc(yahooQuoteUrl(symbol)) + "' target='_blank' rel='noopener'>Open in Yahoo Finance</a></p><p class='muted' id='whyStatus'>Loading the chart.</p><canvas id='chartBox'></canvas><p class='muted chart-hint'>Scroll to zoom. Drag to move. Double-click to reset.</p><dl class='facts' id='facts'></dl><div id='why'></div>";
   board.appendChild(card);
+  const facts = document.getElementById("facts");
   try {
+    let quote = {};
+    try { quote = await loadQuote(symbol); } catch (e) {}
     const closes = await loadCloses(symbol);
-    const pack = explainPack(closes, loadRules());
+    const rules = loadRules();
+    const pack = explainPack(closes, rules);
+    const haveFundamentals = !!(quote.summaryDetail || quote.financialData || quote.earningsHistory);
+    const loose = haveFundamentals ? fiveChecks(quote, closes, rules) : null;
+    const tight = haveFundamentals ? tightChecks(quote, closes, rules) : null;
+    const event = parseNextEvent(quote);
+    const confidence = tight ? confidenceFromChecks(tight, pack.checks, event) : null;
+    const size = confidence == null ? null : sizeFromScore(confidence, event);
+    const price = pack.last;
+    const priceEl = document.getElementById("lastPrice");
+    priceEl.textContent = price.toFixed(2);
     document.getElementById("whyStatus").textContent = pack.signal.toUpperCase();
     document.getElementById("whyStatus").className = "res " + pack.signal;
+    summaryRow(facts, "Loose", loose ? (loose.every(Boolean) ? "pass" : "fail") : "—", loose ? (loose.every(Boolean) ? "pass" : "fail") : "");
+    summaryRow(facts, "Tight", tight ? (tight.every(Boolean) ? "pass" : "fail") : "—", tight ? (tight.every(Boolean) ? "pass" : "fail") : "");
+    summaryRow(facts, "Technical analysis", pack.signal, pack.signal);
+    summaryRow(facts, "Confidence", confidence == null ? "—" : String(confidence));
+    summaryRow(facts, "Size", size || "—");
+    const evText = event && event.text ? event.text : "";
+    const evCls = event && event.kind === "earnings" && event.beat === true ? "beat" : event && event.kind === "earnings" && event.beat === false ? "miss" : "";
+    summaryRow(facts, "Next event", evText, evCls);
+    summaryRow(facts, "50-day", pack.trend ? pack.trend.toFixed(2) : "—");
+    summaryRow(facts, "200-day", pack.higher ? pack.higher.toFixed(2) : "—");
+    summaryRow(facts, "RSI", pack.r == null ? "—" : pack.r.toFixed(0));
     const why = document.getElementById("why");
-    pack.lines.forEach((line) => { const p = document.createElement("p"); p.className = "why"; p.textContent = line; why.appendChild(p); });
+    pack.lines.forEach((line) => { const para = document.createElement("p"); para.className = "why"; para.textContent = line; why.appendChild(para); });
     drawChart(document.getElementById("chartBox"), pack);
   } catch (e) {
     document.getElementById("whyStatus").textContent = "No chart data.";
   }
 }
 
-if (new URLSearchParams(location.search).get("symbol")) drawSymbol(new URLSearchParams(location.search).get("symbol"), new URLSearchParams(location.search).get("name"));
-else if (new URLSearchParams(location.search).get("cat") === "Stocks") drawStocks();
+window.addEventListener("pagehide", () => { if (state.passes.length) saveScan(); });
+
+const boot = new URLSearchParams(location.search);
+if (boot.get("symbol")) drawSymbol(boot.get("symbol"), boot.get("name"));
+else if (boot.get("cat") === "Stocks") drawStocks();
+else if (boot.get("cat") === "Scanners" || boot.get("cat") === "ETFs" || boot.get("cat") === "Commodities") drawCategory(boot.get("cat"));
 else drawHome();

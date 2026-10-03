@@ -5,7 +5,7 @@ import assert from "assert";
 const src = fs.readFileSync(new URL("./scan-logic.js", import.meta.url), "utf8");
 const sandbox = { localStorage: { getItem: () => null, setItem() {} }, console, Date, Math, Number, JSON, Object, Array, String };
 vm.createContext(sandbox);
-vm.runInContext(src + "\nglobalThis.__t = { PAGE_SIZE, CONFIDENCE_BLURB, DEFAULT_RULES, fiveChecks, passesLoose, tightChecks, weekPlus, babySignal, parseNextEvent, confidenceFromChecks, sizeFromScore, etaLine, shouldPaintEta, pageWindow, pageLabel, compareRows, eventText, calendarDays };\n", sandbox);
+vm.runInContext(src + "\nglobalThis.__t = { PAGE_SIZE, CONFIDENCE_BLURB, DEFAULT_RULES, fiveChecks, passesLoose, tightChecks, weekPlus, babySignal, parseNextEvent, confidenceFromChecks, sizeFromScore, etaLine, shouldPaintEta, pageWindow, pageLabel, compareRows, eventText, calendarDays, searchUniverse, topByTraded, sortByTraded, sumLastVolumes, zoomWindow, panWindow, scanPayload, formatVolume, yahooQuoteUrl, SCAN_STORE };\n", sandbox);
 const t = sandbox.__t;
 const rules = t.DEFAULT_RULES;
 
@@ -156,5 +156,41 @@ assert.match(css, /button\.arr/);
 assert.match(css, /\.ev\.beat/);
 assert.match(css, /\.ev\.miss/);
 assert.equal((board.match(/pageSize = 10|\/ 10/g) || []).length, 0);
+
+const tradedNames = [
+  { symbol: "NVDA", name: "NVIDIA", traded: 50 },
+  { symbol: "AAPL", name: "Apple", traded: 10 },
+  { symbol: "MSFT", name: "Microsoft", traded: 30 },
+  { symbol: "ZZZ", name: "Zeta", traded: 5 }
+];
+assert.deepEqual(t.topByTraded(tradedNames, 2).map((r) => r.symbol), ["NVDA", "MSFT"]);
+assert.deepEqual(t.sortByTraded(t.topByTraded(tradedNames, 3), "up").map((r) => r.symbol), ["AAPL", "MSFT", "NVDA"]);
+assert.deepEqual(t.sortByTraded(t.topByTraded(tradedNames, 3), "down").map((r) => r.symbol), ["NVDA", "MSFT", "AAPL"]);
+assert.deepEqual(t.searchUniverse(tradedNames, "nv"), []);
+assert.deepEqual(t.searchUniverse(tradedNames, "nvi").map((r) => r.symbol), ["NVDA"]);
+assert.deepEqual(t.searchUniverse(tradedNames, "app").map((r) => r.symbol), ["AAPL"]);
+assert.equal(t.sumLastVolumes([1, 2, 3, 4, 5, 6, 7, 8], 7), 35);
+assert.equal(t.formatVolume(128359887), "128.4M");
+const z = t.zoomWindow(0, 100, 200, 0.5, true);
+assert.ok(z.end - z.start < 100);
+const pan = t.panWindow(0, 50, 200, 10);
+assert.deepEqual(pan, { start: 10, end: 60 });
+const saved = t.scanPayload([{ order: 1, symbol: "AAPL", name: "Apple", loosePass: true, tightPass: false, baby: "hold", confidence: 40, size: "low", event: null, closes: [1, 2, 3] }], 2, "ticker", "down");
+assert.equal(saved.passes[0].closes, undefined);
+assert.equal(saved.passes[0].symbol, "AAPL");
+assert.equal(saved.page, 2);
+assert.equal(t.SCAN_STORE, "scan-stocks-v1");
+assert.equal(t.yahooQuoteUrl("BRK.B"), "https://finance.yahoo.com/quote/BRK.B");
+assert.match(board, /sessionStorage/);
+assert.match(board, /Scanners/);
+assert.match(board, /ETFs/);
+assert.match(board, /Commodities/);
+assert.match(board, /searchUniverse/);
+assert.match(board, /zoomWindow/);
+assert.match(board, /Open in Yahoo Finance/);
+assert.match(html, /id="suggest"/);
+assert.doesNotMatch(html, /type="submit"/);
+assert.match(css, /\.wide /);
+assert.match(css, /\.cats\.home/);
 
 console.log("ok — stocks scan tests passed");
