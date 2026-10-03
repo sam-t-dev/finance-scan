@@ -184,7 +184,7 @@ async function runScan(ui) {
   ui.btn.disabled = true;
   ui.spin.style.display = "inline-block";
   ui._lastEta = Date.now();
-  ui.eta.textContent = "Estimated time of completion …";
+  ui.eta.textContent = "Estimated time of completion \u2026";
   const rules = loadRules();
   let universe = [];
   try {
@@ -289,20 +289,24 @@ function drawHome() {
   const board = document.getElementById("board");
   board.innerHTML = "";
   const card = document.createElement("section");
-  card.className = "card";
-  const h = document.createElement("h2");
-  h.textContent = "Board";
+  card.className = "home-board";
   const cats = document.createElement("div");
   cats.className = "cats home";
+  const icons = {
+    Scanners: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9V5h4M15 5h4v4M19 15v4h-4M9 19H5v-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/><path d="M4 12h16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>',
+    Stocks: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 16l5-5 4 3 7-8" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>',
+    ETFs: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4l8 4-8 4-8-4 8-4zM4 12l8 4 8-4M4 16l8 4 8-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/></svg>',
+    Commodities: '<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8l8-4 8 4v8l-8 4-8-4V8z" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="M12 12v8M12 12L4 8M12 12l8-4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/></svg>'
+  };
   [
-    ["Scanners", "index.html?cat=Scanners", "Open a scan"],
-    ["Stocks", "index.html?cat=Stocks", "Top 1,000 by volume"],
-    ["ETFs", "index.html?cat=ETFs", "No scan yet"],
-    ["Commodities", "index.html?cat=Commodities", "No scan yet"]
+    ["Scanners", "index.html?cat=Scanners"],
+    ["Stocks", "index.html?cat=Stocks"],
+    ["ETFs", "index.html?cat=ETFs"],
+    ["Commodities", "index.html?cat=Commodities"]
   ].forEach((item) => {
     const a = document.createElement("a");
     a.href = item[1];
-    a.innerHTML = "<b>" + esc(item[0]) + "</b><div class='muted'>" + esc(item[2]) + "</div>";
+    a.innerHTML = icons[item[0]] + "<span>" + esc(item[0]) + "</span>";
     cats.appendChild(a);
   });
   const head = document.createElement("div");
@@ -320,8 +324,8 @@ function drawHome() {
   note.textContent = "Top 20";
   head.append(title, note);
   const list = document.createElement("div");
-  list.className = "wides";
-  card.append(h, cats, head, list);
+  list.className = "wides cols";
+  card.append(cats, head, list);
   board.appendChild(card);
   const home = { rows: [], dir: "down", label: "listed volume" };
   function paint() {
@@ -329,16 +333,15 @@ function drawHome() {
     list.innerHTML = "";
     ordered.forEach((row) => {
       const a = document.createElement("a");
-      a.className = "wide";
+      a.className = "wide quote-card";
       a.href = "index.html?symbol=" + encodeURIComponent(row.symbol) + "&name=" + encodeURIComponent(row.name);
       const move = formatDayMove(row.chg, row.pct);
       const tone = row.chg > 0 ? "up" : row.chg < 0 ? "down" : "flat";
-      const price = row.last != null && Number.isFinite(row.last) ? row.last.toFixed(2) : "—";
-      const priceTone = move ? tone : "flat";
-      a.innerHTML = "<span><b>" + esc(row.symbol) + "</b> <span class='muted'>" + esc(row.name) + "</span></span><span class='quote'><span class='qprice " + priceTone + "'>" + esc(price) + "</span>" + (move ? "<span class='qchg " + tone + "'>" + esc(move) + "</span>" : "<span class='qchg muted'>—</span>") + "</span>";
+      const price = row.last != null && Number.isFinite(row.last) ? row.last.toFixed(2) : "\u2014";
+      a.innerHTML = "<span class='id'><b>" + esc(row.symbol) + "</b><span class='co muted'>" + esc(row.name) + "</span></span><span class='quote'><span class='qlabel'>Last price</span><span class='qprice'>" + esc(price) + "</span>" + (move ? "<span class='qchg " + tone + "'>" + esc(move) + "</span>" : "<span class='qchg muted'>\u2014</span>") + "</span>";
       list.appendChild(a);
     });
-    note.textContent = "Top " + ordered.length + " · " + home.label;
+    note.textContent = "Top " + ordered.length + " \u00b7 " + home.label;
   }
   up.onclick = () => { home.dir = "up"; paint(); };
   down.onclick = () => { home.dir = "down"; paint(); };
@@ -475,7 +478,7 @@ async function paintSearch() {
   hits.forEach((hit) => {
     const a = document.createElement("a");
     a.href = assetUrl("index.html") + "?symbol=" + encodeURIComponent(hit.symbol) + "&name=" + encodeURIComponent(hit.name);
-    a.textContent = hit.symbol + " — " + hit.name;
+    a.textContent = hit.symbol + " \u2014 " + hit.name;
     suggest.appendChild(a);
   });
   suggest.style.display = "block";
@@ -598,7 +601,7 @@ async function drawSymbol(symbol, name) {
   board.innerHTML = "";
   const card = document.createElement("section");
   card.className = "card";
-  card.innerHTML = "<div class='sec-head'><h2>" + esc(symbol) + "</h2><a class='ghost link' href='index.html?cat=Stocks'>Back</a></div><h1>" + esc(name || symbol) + "</h1><p class='price' id='lastPrice'>—</p><p><a class='ghost link' id='yahooLink' href='" + esc(yahooQuoteUrl(symbol)) + "' target='_blank' rel='noopener'>Open in Yahoo Finance</a></p><p class='muted' id='whyStatus'>Loading the chart.</p><canvas id='chartBox'></canvas><p class='muted chart-hint'>Scroll to zoom. Drag to move. Double-click to reset.</p><dl class='facts' id='facts'></dl><div id='why'></div>";
+  card.innerHTML = "<div class='sec-head'><h2>" + esc(symbol) + "</h2><a class='ghost link' href='index.html?cat=Stocks'>Back</a></div><h1>" + esc(name || symbol) + "</h1><p class='price' id='lastPrice'>\u2014</p><p><a class='ghost link' id='yahooLink' href='" + esc(yahooQuoteUrl(symbol)) + "' target='_blank' rel='noopener'>Open in Yahoo Finance</a></p><p class='muted' id='whyStatus'>Loading the chart.</p><canvas id='chartBox'></canvas><p class='muted chart-hint'>Scroll to zoom. Drag to move. Double-click to reset.</p><dl class='facts' id='facts'></dl><div id='why'></div>";
   board.appendChild(card);
   const facts = document.getElementById("facts");
   try {
@@ -620,17 +623,17 @@ async function drawSymbol(symbol, name) {
     priceEl.textContent = price.toFixed(2);
     document.getElementById("whyStatus").textContent = pack.signal.toUpperCase();
     document.getElementById("whyStatus").className = "res " + pack.signal;
-    summaryRow(facts, "Loose", loose ? (loose.every(Boolean) ? "pass" : "fail") : "—", loose ? (loose.every(Boolean) ? "pass" : "fail") : "");
-    summaryRow(facts, "Tight", tight ? (tight.every(Boolean) ? "pass" : "fail") : "—", tight ? (tight.every(Boolean) ? "pass" : "fail") : "");
+    summaryRow(facts, "Loose", loose ? (loose.every(Boolean) ? "pass" : "fail") : "\u2014", loose ? (loose.every(Boolean) ? "pass" : "fail") : "");
+    summaryRow(facts, "Tight", tight ? (tight.every(Boolean) ? "pass" : "fail") : "\u2014", tight ? (tight.every(Boolean) ? "pass" : "fail") : "");
     summaryRow(facts, "Technical analysis", pack.signal, pack.signal);
-    summaryRow(facts, "Confidence", confidence == null ? "—" : String(confidence));
-    summaryRow(facts, "Size", size || "—");
+    summaryRow(facts, "Confidence", confidence == null ? "\u2014" : String(confidence));
+    summaryRow(facts, "Size", size || "\u2014");
     const evText = event && event.text ? event.text : "";
     const evCls = event && event.kind === "earnings" && event.beat === true ? "beat" : event && event.kind === "earnings" && event.beat === false ? "miss" : "";
     summaryRow(facts, "Next event", evText, evCls);
-    summaryRow(facts, "50-day", pack.trend ? pack.trend.toFixed(2) : "—");
-    summaryRow(facts, "200-day", pack.higher ? pack.higher.toFixed(2) : "—");
-    summaryRow(facts, "RSI", pack.r == null ? "—" : pack.r.toFixed(0));
+    summaryRow(facts, "50-day", pack.trend ? pack.trend.toFixed(2) : "\u2014");
+    summaryRow(facts, "200-day", pack.higher ? pack.higher.toFixed(2) : "\u2014");
+    summaryRow(facts, "RSI", pack.r == null ? "\u2014" : pack.r.toFixed(0));
     const why = document.getElementById("why");
     pack.lines.forEach((line) => { const para = document.createElement("p"); para.className = "why"; para.textContent = line; why.appendChild(para); });
     drawChart(document.getElementById("chartBox"), pack);
