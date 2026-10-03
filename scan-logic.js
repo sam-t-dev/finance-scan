@@ -466,6 +466,43 @@ function scanPayload(passes, page, sortKey, sortDir) {
   };
 }
 
+
+function quoteFromChart(chart) {
+  const res = chart && chart.chart && chart.chart.result && chart.chart.result[0];
+  if (!res) return null;
+  const meta = res.meta || {};
+  const raw = (res.indicators && res.indicators.quote && res.indicators.quote[0] && res.indicators.quote[0].close) || [];
+  const closes = [];
+  for (let i = 0; i < raw.length; i++) {
+    if (raw[i] != null && Number.isFinite(Number(raw[i]))) closes.push(Number(raw[i]));
+  }
+  const last = Number.isFinite(Number(meta.regularMarketPrice)) ? Number(meta.regularMarketPrice) : (closes.length ? closes[closes.length - 1] : null);
+  if (last == null) return null;
+  let pct = Number.isFinite(Number(meta.regularMarketChangePercent)) ? Number(meta.regularMarketChangePercent) : null;
+  let chg = null;
+  if (pct != null && pct !== -100) {
+    const prev = last / (1 + pct / 100);
+    if (Number.isFinite(prev)) chg = last - prev;
+  }
+  if ((chg == null || pct == null) && closes.length >= 2) {
+    const prevBar = closes[closes.length - 2];
+    const lastBar = closes[closes.length - 1];
+    const aligned = Math.abs(lastBar - last) <= Math.max(0.02, Math.abs(last) * 0.0005);
+    if (aligned && prevBar) {
+      if (chg == null) chg = last - prevBar;
+      if (pct == null) pct = ((last - prevBar) / prevBar) * 100;
+    }
+  }
+  return { last: last, chg: chg, pct: pct };
+}
+
+function formatDayMove(chg, pct) {
+  if (chg == null || pct == null || !Number.isFinite(Number(chg)) || !Number.isFinite(Number(pct))) return "";
+  const amt = (chg > 0 ? "+" : "") + Number(chg).toFixed(2);
+  const p = (pct > 0 ? "+" : "") + Number(pct).toFixed(2) + "%";
+  return amt + " " + p;
+}
+
 function yahooQuoteUrl(symbol) {
   return "https://finance.yahoo.com/quote/" + encodeURIComponent(symbol);
 }

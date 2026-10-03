@@ -5,7 +5,7 @@ import assert from "assert";
 const src = fs.readFileSync(new URL("./scan-logic.js", import.meta.url), "utf8");
 const sandbox = { localStorage: { getItem: () => null, setItem() {} }, console, Date, Math, Number, JSON, Object, Array, String };
 vm.createContext(sandbox);
-vm.runInContext(src + "\nglobalThis.__t = { PAGE_SIZE, CONFIDENCE_BLURB, DEFAULT_RULES, fiveChecks, passesLoose, tightChecks, weekPlus, babySignal, parseNextEvent, confidenceFromChecks, sizeFromScore, etaLine, shouldPaintEta, pageWindow, pageLabel, compareRows, eventText, calendarDays, searchUniverse, topByTraded, sortByTraded, sumLastVolumes, zoomWindow, panWindow, scanPayload, formatVolume, yahooQuoteUrl, SCAN_STORE };\n", sandbox);
+vm.runInContext(src + "\nglobalThis.__t = { PAGE_SIZE, CONFIDENCE_BLURB, DEFAULT_RULES, fiveChecks, passesLoose, tightChecks, weekPlus, babySignal, parseNextEvent, confidenceFromChecks, sizeFromScore, etaLine, shouldPaintEta, pageWindow, pageLabel, compareRows, eventText, calendarDays, searchUniverse, topByTraded, sortByTraded, sumLastVolumes, zoomWindow, panWindow, scanPayload, formatVolume, quoteFromChart, formatDayMove, yahooQuoteUrl, SCAN_STORE };\n", sandbox);
 const t = sandbox.__t;
 const rules = t.DEFAULT_RULES;
 
@@ -206,5 +206,29 @@ assert.match(html, /id="suggest"/);
 assert.doesNotMatch(html, /type="submit"/);
 assert.match(css, /\.wide /);
 assert.match(css, /\.cats\.home/);
+
+
+const upChart = { chart: { result: [{ meta: { regularMarketPrice: 333.69, regularMarketChangePercent: 1.02 }, indicators: { quote: [{ close: [330.32, 333.69] }] } }] } };
+const upQ = t.quoteFromChart(upChart);
+assert.equal(upQ.last, 333.69);
+assert.equal(upQ.pct, 1.02);
+assert.ok(Math.abs(upQ.chg - (333.69 - 333.69 / 1.0102)) < 1e-9);
+assert.equal(t.formatDayMove(upQ.chg, upQ.pct), "+3.37 +1.02%");
+const downChart = { chart: { result: [{ meta: { regularMarketPrice: 100, regularMarketChangePercent: -2.5 }, indicators: { quote: [{ close: [102.56, 100] }] } }] } };
+const downQ = t.quoteFromChart(downChart);
+assert.ok(downQ.chg < 0);
+assert.equal(t.formatDayMove(downQ.chg, downQ.pct), "-2.56 -2.50%");
+const barsOnly = { chart: { result: [{ meta: {}, indicators: { quote: [{ close: [10, 11] }] } }] } };
+const barQ = t.quoteFromChart(barsOnly);
+assert.equal(barQ.last, 11);
+assert.equal(barQ.chg, 1);
+assert.equal(barQ.pct, 10);
+assert.equal(t.quoteFromChart({}), null);
+assert.equal(t.formatDayMove(null, 1), "");
+assert.match(board, /quoteFromChart/);
+assert.match(board, /formatDayMove/);
+assert.match(css, /\.qchg\.up/);
+assert.match(css, /\.qchg\.down/);
+assert.doesNotMatch(board, /regularMarketPrice:\s*\d/);
 
 console.log("ok — stocks scan tests passed");
