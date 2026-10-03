@@ -44,15 +44,24 @@
     </section>
     <section class="card">
       <h2>BabyPips rules</h2>
-      <p class="muted">Week-plus swing, not a day trade. Trend is the 50 and 200. A buy needs price within the pullback band above the 50, RSI not chased, and room up to the reward high at least the minimum reward:risk. Stop is a close back under the 50.</p>
-      <label><span>Trend SMA</span><input id="btrend" type="number" step="1" /></label>
-      <label><span>Higher-timeframe SMA</span><input id="bhigher" type="number" step="1" /></label>
-      <label><span>Slope bars</span><input id="bslope" type="number" step="1" /></label>
-      <label><span>RSI min</span><input id="brlo" type="number" step="1" /></label>
-      <label><span>Do not chase RSI above</span><input id="brhi" type="number" step="1" /></label>
-      <label><span>Pullback within % above the 50 SMA</span><input id="bpull" type="number" step="0.1" /></label>
+      <p class="muted">Cowabunga end-of-course checklist (BabyPips School of Pipsology). Three boxes — Trend, Momentum, Support/Resistance — must agree for buy or sell; otherwise hold. Higher timeframe is weekly bars built from daily. Entry is the daily chart. Source: babypips.com/trading/cowabunga-system</p>
+      <label><span>EMA fast (trend / cross)</span><input id="bemaf" type="number" step="1" /></label>
+      <label><span>EMA slow (trend / cross)</span><input id="bemas" type="number" step="1" /></label>
+      <label><span>Higher-TF bar size (daily bars per week bar)</span><input id="bhtf" type="number" step="1" /></label>
+      <label><span>EMA cross lookback, sessions</span><input id="bcross" type="number" step="1" /></label>
+      <label><span>RSI period</span><input id="brsip" type="number" step="1" /></label>
+      <label><span>RSI midline</span><input id="brsim" type="number" step="1" /></label>
+      <label><span>Stochastic %K</span><input id="bstk" type="number" step="1" /></label>
+      <label><span>Stochastic %D</span><input id="bstd" type="number" step="1" /></label>
+      <label><span>Stochastic smooth</span><input id="bsts" type="number" step="1" /></label>
+      <label><span>Stochastic overbought</span><input id="bstob" type="number" step="1" /></label>
+      <label><span>Stochastic oversold</span><input id="bstos" type="number" step="1" /></label>
+      <label><span>MACD fast</span><input id="bmacdf" type="number" step="1" /></label>
+      <label><span>MACD slow</span><input id="bmacds" type="number" step="1" /></label>
+      <label><span>MACD signal</span><input id="bmacdg" type="number" step="1" /></label>
+      <label><span>Swing lookback, sessions</span><input id="bswing" type="number" step="1" /></label>
       <label><span>Minimum reward:risk</span><input id="brr" type="number" step="0.1" /></label>
-      <label><span>Reward lookback, sessions</span><input id="breward" type="number" step="1" /></label>
+      <label><span>Max stop width % of price</span><input id="bstop" type="number" step="0.1" /></label>
     </section>
   </main>
   <script src="rules-page.js"></script>
