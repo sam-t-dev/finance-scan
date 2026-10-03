@@ -2,16 +2,16 @@
 html[data-theme="light"] { --bg:#f4f4f1; --panel:#fff; --line:#ddd; --text:#161616; --muted:#666; --pass:#0f8a4b; --fail:#c21d1d; --wait:#8a6a00; --accent:#1d5fd0; }
 * { box-sizing:border-box; }
 html, body { margin:0; background:var(--bg); color:var(--text); font:15px/1.4 -apple-system, BlinkMacSystemFont, Segoe UI, sans-serif; }
-.top { display:flex; gap:12px; align-items:center; flex-wrap:wrap; padding:12px 16px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--bg); z-index:4; }
+.top { display:flex; gap:12px; align-items:center; flex-wrap:wrap; padding:12px 16px; border-bottom:1px solid var(--line); position:sticky; top:0; background:var(--bg); z-index:30; overflow:visible; }
 .brand { letter-spacing:.18em; font-weight:700; font-size:13px; color:inherit; text-decoration:none; }
 .search { position:relative; display:flex; gap:6px; width:280px; max-width:70vw; }
 .search input { width:100%; }
 .search input, label input, select { background:var(--panel); color:var(--text); border:1px solid var(--line); padding:8px 10px; border-radius:8px; font:inherit; }
 button, .link { background:var(--text); color:var(--bg); border:0; border-radius:8px; padding:8px 12px; cursor:pointer; text-decoration:none; font:inherit; }
 .ghost { background:transparent; color:var(--text); border:1px solid var(--line); }
-.suggest { position:absolute; left:0; right:0; top:42px; background:var(--panel); border:1px solid var(--line); border-radius:8px; z-index:6; display:none; max-height:280px; overflow:auto; }
+.suggest { position:absolute; left:0; right:0; top:calc(100% + 4px); background:var(--panel); border:1px solid var(--line); border-radius:8px; z-index:40; display:none; max-height:280px; overflow:auto; }
 .suggest a { display:block; padding:8px 10px; color:inherit; text-decoration:none; border-bottom:1px solid var(--line); }
-#chartBox { width:100%; height:280px; background:#0b0b0c; border:1px solid var(--line); border-radius:12px; }
+#chartBox { width:100%; height:320px; background:#0b0b0c; border:1px solid var(--line); border-radius:12px; }
 .why { margin:8px 0; }
 .card { background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:14px; }
 h1 { margin:0; font-size:22px; }
@@ -22,12 +22,15 @@ h2 { margin:0 0 8px; font-size:13px; letter-spacing:.08em; text-transform:upperc
 .list { display:grid; }
 .list { overflow-x:auto; }
 .row { display:grid; grid-template-columns:76px minmax(96px,1.15fr) 78px 78px minmax(132px,1fr) minmax(168px,1.35fr) 64px minmax(132px,1.05fr); gap:8px; align-items:center; padding:8px 0; border-bottom:1px solid var(--line); color:inherit; text-decoration:none; min-width:920px; }
-.row.head { color:var(--muted); font-size:11px; letter-spacing:.04em; text-transform:uppercase; align-items:end; }
+.row.head { color:#fff; font-size:15px; letter-spacing:.02em; text-transform:uppercase; align-items:end; background:transparent; }
 .row.head.groups { border-bottom:0; padding-bottom:0; }
 .row.head .group { grid-column:3 / span 2; text-align:center; }
-.htitle { font-weight:650; }
+.htitle { font-weight:700; font-size:15px; color:#fff; background:transparent; }
+html[data-theme="light"] .row.head, html[data-theme="light"] .htitle, html[data-theme="light"] button.htxt { color:#000; }
+button.htxt { background:transparent; color:inherit; border:0; border-radius:0; box-shadow:none; padding:0; margin:0; font:inherit; font-weight:700; letter-spacing:inherit; text-transform:inherit; line-height:inherit; cursor:pointer; }
+button.htxt:hover, button.htxt:focus { background:transparent; color:inherit; outline:none; box-shadow:none; }
 .sub { display:block; text-transform:none; letter-spacing:0; font-weight:450; font-size:10px; line-height:1.3; margin-top:3px; max-width:240px; }
-button.arr { background:transparent; color:inherit; border:0; border-radius:0; box-shadow:none; padding:0 0 0 2px; margin:0; font-size:8px; line-height:1; vertical-align:super; }
+button.arr { background:transparent; color:inherit; border:0; border-radius:0; box-shadow:none; padding:0 0 0 3px; margin:0; font-size:9px; line-height:1; vertical-align:super; }
 button.arr:hover, button.arr:focus { background:transparent; color:inherit; outline:none; }
 .num, .size { font-variant-numeric:tabular-nums; text-align:right; }
 .size { text-transform:none; letter-spacing:0; font-weight:650; }

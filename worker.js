@@ -44,11 +44,11 @@ async function yahooQuote(symbol) {
   });
   cookie = mergeCookie(cookie, cookieHeader(page));
   const crumbRes = await fetch("https://query1.finance.yahoo.com/v1/test/getcrumb", {
-    headers: { "user-agent": ua, cookie, origin: "https://finance.yahoo.com", referer: "https://finance.yahoo.com/", accept: "*/*" }
+    headers: { "user-agent": ua, cookie, accept: "*/*" }
   });
   const crumb = (await crumbRes.text()).trim();
   const target = "https://query1.finance.yahoo.com/v10/finance/quoteSummary/" + encodeURIComponent(symbol) + "?modules=" + QUOTE_MODULES + "&crumb=" + encodeURIComponent(crumb);
-  return fetch(target, { headers: { "user-agent": ua, cookie, origin: "https://finance.yahoo.com", referer: "https://finance.yahoo.com/" } });
+  return fetch(target, { headers: { "user-agent": ua, cookie, accept: "application/json" } });
 }
 
 export default {

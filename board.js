@@ -17,13 +17,38 @@ async function loadQuote(sym) {
   return (row.quoteSummary && row.quoteSummary.result && row.quoteSummary.result[0]) || {};
 }
 
-async function loadCloses(sym) {
-  const chart = await getJson(apiBase() + "/yahoo/chart?symbol=" + encodeURIComponent(sym) + "&range=1y&interval=1d");
-  const res = chart.chart.result[0];
-  return (res.indicators.quote[0].close || []).filter((x) => x != null);
+function assetUrl(name) {
+  const url = new URL(document.baseURI);
+  let path = url.pathname || "/";
+  if (path.endsWith(".html")) path = path.slice(0, path.lastIndexOf("/") + 1);
+  else if (!path.endsWith("/")) path += "/";
+  url.pathname = path + String(name).replace(/^\/+/, "");
+  url.search = "";
+  url.hash = "";
+  return url.href;
 }
 
-const state = { running: false, abort: false, passes: [], page: 0, sortKey: null, sortDir: "up" };
+async function loadChart(sym, range) {
+  const chart = await getJson(apiBase() + "/yahoo/chart?symbol=" + encodeURIComponent(sym) + "&range=" + encodeURIComponent(range || "1y") + "&interval=1d");
+  const res = chart.chart.result[0];
+  const raw = (res.indicators && res.indicators.quote && res.indicators.quote[0] && res.indicators.quote[0].close) || [];
+  const stamps = res.timestamp || [];
+  const closes = [];
+  const times = [];
+  for (let i = 0; i < raw.length; i++) {
+    if (raw[i] == null) continue;
+    closes.push(raw[i]);
+    times.push(stamps[i] == null ? null : Number(stamps[i]));
+  }
+  return { closes, times };
+}
+
+async function loadCloses(sym) {
+  const series = await loadChart(sym, "1y");
+  return series.closes;
+}
+
+const state = { running: false, abort: false, passes: [], page: 0, sortKey: "confidence", sortDir: "down" };
 
 function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -91,8 +116,24 @@ function arrowButtons(key) {
 function titleWithArrows(label, key) {
   const span = document.createElement("span");
   span.className = "htitle";
-  span.appendChild(document.createTextNode(label));
-  arrowButtons(key).forEach((b) => span.appendChild(b));
+  const text = document.createElement("button");
+  text.type = "button";
+  text.className = "htxt";
+  text.textContent = label;
+  text.setAttribute("aria-label", "Sort by " + label);
+  text.onclick = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    let dir;
+    if (state.sortKey === key) dir = state.sortDir === "up" ? "down" : "up";
+    else dir = key === "ticker" || key === "name" ? "up" : "down";
+    setSort(key, dir);
+  };
+  span.appendChild(text);
+  arrowButtons(key).forEach((b) => {
+    b.addEventListener("click", (e) => e.stopPropagation());
+    span.appendChild(b);
+  });
   return span;
 }
 
@@ -118,10 +159,6 @@ function buildHead(list) {
   const conf = document.createElement("span");
   conf.className = "confhead";
   conf.appendChild(titleWithArrows("Confidence", "confidence"));
-  const sub = document.createElement("span");
-  sub.className = "sub";
-  sub.textContent = CONFIDENCE_BLURB;
-  conf.appendChild(sub);
   groups.append(blankA, blankB, fund, tech, conf, titleWithArrows("Size", "size"), titleWithArrows("Next event", "event"));
   const cols = document.createElement("div");
   cols.className = "row head cols";
@@ -151,7 +188,7 @@ async function runScan(ui) {
   const rules = loadRules();
   let universe = [];
   try {
-    universe = await getJson("universe.json");
+    universe = await getJson(assetUrl("universe.json"));
   } catch (e) {
     ui.eta.textContent = "Could not load the universe list.";
     state.running = false;
@@ -242,8 +279,8 @@ function restoreScan() {
     if (!data || !Array.isArray(data.passes) || !data.passes.length) return false;
     state.passes = data.passes;
     state.page = data.page || 0;
-    state.sortKey = data.sortKey || null;
-    state.sortDir = data.sortDir || "up";
+    state.sortKey = data.sortKey || "confidence";
+    state.sortDir = data.sortDir || "down";
     return true;
   } catch (e) { return false; }
 }
@@ -301,7 +338,7 @@ function drawHome() {
   }
   up.onclick = () => { home.dir = "up"; paint(); };
   down.onclick = () => { home.dir = "down"; paint(); };
-  getJson("universe.json").then(async (universe) => {
+  getJson(assetUrl("universe.json")).then(async (universe) => {
     const seed = topByTraded((universe || []).map((row) => ({ symbol: row.symbol, name: row.name, traded: Number(row.volume) || 0 })), 40);
     home.rows = seed.slice(0, 20);
     home.label = "listed volume";
@@ -413,30 +450,40 @@ const searchForm = document.getElementById("searchForm");
 const searchBox = document.getElementById("q");
 const suggest = document.getElementById("suggest");
 let universeCache = null;
-searchForm.onsubmit = (e) => e.preventDefault();
-searchBox.addEventListener("input", async () => {
+if (searchForm && searchForm.tagName === "FORM") searchForm.onsubmit = (e) => e.preventDefault();
+async function paintSearch() {
   const q = searchBox.value.trim();
   suggest.innerHTML = "";
   if (q.length < 3) { suggest.style.display = "none"; return; }
   if (!universeCache) {
-    try { universeCache = await getJson("universe.json"); } catch (e) { universeCache = []; }
+    try { universeCache = await getJson(assetUrl("universe.json")); } catch (e) { universeCache = []; }
   }
-  const hits = searchUniverse(universeCache, q);
+  const hits = searchUniverse(Array.isArray(universeCache) ? universeCache : [], q);
   if (!hits.length) { suggest.style.display = "none"; return; }
   hits.forEach((hit) => {
     const a = document.createElement("a");
-    a.href = "index.html?symbol=" + encodeURIComponent(hit.symbol) + "&name=" + encodeURIComponent(hit.name);
+    a.href = assetUrl("index.html") + "?symbol=" + encodeURIComponent(hit.symbol) + "&name=" + encodeURIComponent(hit.name);
     a.textContent = hit.symbol + " — " + hit.name;
     suggest.appendChild(a);
   });
   suggest.style.display = "block";
-});
+}
+searchBox.addEventListener("input", () => { paintSearch(); });
 document.addEventListener("click", (e) => {
   if (!searchForm.contains(e.target)) suggest.style.display = "none";
 });
 
+function axisDate(unix) {
+  if (unix == null || !Number.isFinite(Number(unix))) return "";
+  const d = new Date(Number(unix) * 1000);
+  if (Number.isNaN(d.getTime())) return "";
+  const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  return d.getUTCDate() + " " + months[d.getUTCMonth()] + " " + String(d.getUTCFullYear());
+}
+
 function drawChart(canvas, pack) {
   const full = pack.closes;
+  const fullTimes = pack.times || [];
   const view = { start: Math.max(0, full.length - 180), end: full.length };
   let drag = null;
   function draw() {
@@ -444,14 +491,16 @@ function drawChart(canvas, pack) {
     const w = canvas.width = canvas.clientWidth * 2;
     const h = canvas.height = canvas.clientHeight * 2;
     const closes = full.slice(view.start, view.end);
+    const times = fullTimes.slice(view.start, view.end);
     const s50 = closes.map((_, i) => sma(full.slice(0, view.start + i + 1), 50));
     const s200 = closes.map((_, i) => sma(full.slice(0, view.start + i + 1), 200));
     const vals = closes.concat(s50.filter(Boolean), s200.filter(Boolean));
     if (pack.swingHigh != null) vals.push(pack.swingHigh);
     const lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
     const pad = (hi - lo) * 0.08 || 1;
+    const axis = 52;
     function X(i) { return 24 + (w - 36) * i / Math.max(1, closes.length - 1); }
-    function Y(v) { return 16 + (h - 32) * (1 - (v - (lo - pad)) / (hi - lo + pad * 2)); }
+    function Y(v) { return 16 + (h - 16 - axis) * (1 - (v - (lo - pad)) / (hi - lo + pad * 2)); }
     ctx.clearRect(0, 0, w, h);
     ctx.fillStyle = "#0b0b0c";
     ctx.fillRect(0, 0, w, h);
@@ -471,6 +520,25 @@ function drawChart(canvas, pack) {
     line(s200, "#6ea8ff");
     ctx.fillStyle = "#3dd68c";
     ctx.beginPath(); ctx.arc(X(closes.length - 1), Y(closes[closes.length - 1]), 5, 0, 7); ctx.fill();
+    const baseY = h - axis + 8;
+    ctx.strokeStyle = "#8d8d96";
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(24, baseY);
+    ctx.lineTo(w - 12, baseY);
+    ctx.stroke();
+    ctx.fillStyle = "#ffffff";
+    ctx.font = "22px sans-serif";
+    ctx.textBaseline = "top";
+    const slots = Math.min(4, closes.length);
+    for (let t = 0; t < slots; t++) {
+      const i = slots === 1 ? 0 : Math.round(t * (closes.length - 1) / (slots - 1));
+      const label = axisDate(times[i]);
+      if (!label) continue;
+      const x = X(i);
+      ctx.textAlign = t === 0 ? "left" : t === slots - 1 ? "right" : "center";
+      ctx.fillText(label, x, baseY + 8);
+    }
   }
   canvas.onwheel = (e) => {
     e.preventDefault();
@@ -524,9 +592,11 @@ async function drawSymbol(symbol, name) {
   try {
     let quote = {};
     try { quote = await loadQuote(symbol); } catch (e) {}
-    const closes = await loadCloses(symbol);
+    const series = await loadChart(symbol, "1y");
+    const closes = series.closes;
     const rules = loadRules();
     const pack = explainPack(closes, rules);
+    pack.times = series.times;
     const haveFundamentals = !!(quote.summaryDetail || quote.financialData || quote.earningsHistory);
     const loose = haveFundamentals ? fiveChecks(quote, closes, rules) : null;
     const tight = haveFundamentals ? tightChecks(quote, closes, rules) : null;
