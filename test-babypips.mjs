@@ -3,7 +3,7 @@ import fs from "fs";
 import vm from "vm";
 import assert from "assert";
 
-const src = fs.readFileSync("babypips.js", "utf8") + "\n" + fs.readFileSync("board.js", "utf8");
+const src = fs.readFileSync("babypips-a.js", "utf8") + "\n" + fs.readFileSync("babypips-b.js", "utf8") + "\n" + fs.readFileSync("board-scan.js", "utf8") + "\n" + fs.readFileSync("board-ui.js", "utf8");
 const cut = src.indexOf("const theme = localStorage");
 assert.ok(cut > 0, "expected theme boot marker");
 const sandbox = {
