@@ -105,6 +105,13 @@ const meet = t.parseNextEvent(meeting, now);
 assert.equal(meet.kind, "meeting");
 assert.equal(meet.text, "Meeting in 30 days");
 assert.equal(meet.beat, null);
+
+const chartOnly = { earnings: { earningsChart: { earningsDate: [{ raw: Math.floor(now / 1000) + 3 * day }] } } };
+assert.equal(t.parseNextEvent(chartOnly, now).text, "Earnings in 3 days");
+assert.equal(t.parseNextEvent(chartOnly, now).beat, null);
+const meetDate = { calendarEvents: { shareholderMeetingDate: { raw: Math.floor(now / 1000) + 30 * day } } };
+assert.equal(t.parseNextEvent(meetDate, now).text, "Meeting in 30 days");
+assert.equal(t.parseNextEvent(meetDate, now).kind, "meeting");
 assert.equal(t.parseNextEvent({}, now), null);
 
 const quote = {
@@ -147,12 +154,19 @@ assert.match(html, /scan-logic\.js/);
 assert.match(board, /PAGE_SIZE/);
 assert.match(board, /Fundamentals/);
 assert.match(board, /Technical analysis/);
-assert.match(board, /CONFIDENCE_BLURB/);
+assert.doesNotMatch(board, /CONFIDENCE_BLURB/);
+assert.match(board, /sortKey: "confidence"/);
+assert.match(board, /className = "htxt"/);
+assert.match(board, /pack\.times/);
+assert.match(board, /axisDate/);
 assert.match(board, /shouldPaintEta/);
 assert.match(board, /Loose/);
 assert.match(board, /Tight/);
 assert.doesNotMatch(board, /Cowabunga|emaFast/);
 assert.match(css, /button\.arr/);
+assert.match(css, /button\.htxt/);
+assert.match(css, /#fff/);
+assert.match(css, /#000/);
 assert.match(css, /\.ev\.beat/);
 assert.match(css, /\.ev\.miss/);
 assert.equal((board.match(/pageSize = 10|\/ 10/g) || []).length, 0);

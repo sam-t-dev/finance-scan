@@ -179,34 +179,70 @@ function eventText(kind, days) {
 }
 
 function unixOf(v) {
-  if (v == null) return null;
-  if (typeof v === "number" && Number.isFinite(v)) return v;
-  if (typeof v === "object" && v.raw != null) return num(v.raw);
+  if (v == null || v === "") return null;
+  if (typeof v === "number" && Number.isFinite(v)) {
+    if (v > 1e12) return Math.round(v / 1000);
+    return v;
+  }
+  if (typeof v === "string") {
+    const ms = Date.parse(v);
+    return Number.isFinite(ms) ? Math.round(ms / 1000) : null;
+  }
+  if (typeof v === "object") {
+    if (v.raw != null) return unixOf(v.raw);
+    if (v.fmt != null) return unixOf(v.fmt);
+  }
   return null;
+}
+
+function asList(v) {
+  if (v == null) return [];
+  return Array.isArray(v) ? v : [v];
+}
+
+function pushEarningsDate(candidates, value) {
+  asList(value).forEach((item) => {
+    const u = unixOf(item);
+    if (u) candidates.push({ kind: "earnings", unix: u, beat: null });
+  });
+}
+
+function meetingUnix(meeting) {
+  if (meeting == null) return null;
+  if (typeof meeting !== "object") return unixOf(meeting);
+  return unixOf(meeting.date || meeting.startDate || meeting.meetingDate || meeting.shareholderMeetingDate || meeting);
 }
 
 function parseNextEvent(row, nowMs) {
   const now = nowMs == null ? Date.now() : nowMs;
   const candidates = [];
-  const earnings = row && row.calendarEvents && row.calendarEvents.earnings;
-  const upcoming = earnings && earnings.earningsDate;
-  if (Array.isArray(upcoming) && upcoming.length) {
-    const u = unixOf(upcoming[0]);
-    if (u) candidates.push({ kind: "earnings", unix: u, beat: null });
+  const cal = row && row.calendarEvents;
+  const earnings = cal && cal.earnings;
+  pushEarningsDate(candidates, earnings && earnings.earningsDate);
+  const chart = row && row.earnings && row.earnings.earningsChart;
+  pushEarningsDate(candidates, chart && chart.earningsDate);
+  const quarterly = chart && chart.quarterly;
+  if (Array.isArray(quarterly)) {
+    quarterly.forEach((q) => {
+      if (!q) return;
+      const u = unixOf(q.reportedDate || q.reportDate || q.earningsDate);
+      if (!u) return;
+      const actual = num(q.actual != null ? q.actual : q.epsActual);
+      const estimate = num(q.estimate != null ? q.estimate : q.epsEstimate);
+      let beat = null;
+      if (actual != null && estimate != null && actual !== estimate) beat = actual > estimate;
+      candidates.push({ kind: "earnings", unix: u, beat });
+    });
   }
-  const quarterly = row && row.earnings && row.earnings.earningsChart && row.earnings.earningsChart.quarterly;
-  if (Array.isArray(quarterly) && quarterly.length) {
-    const last = quarterly[quarterly.length - 1];
-    const u = unixOf(last.reportedDate);
-    const actual = num(last.actual);
-    const estimate = num(last.estimate);
-    let beat = null;
-    if (actual != null && estimate != null && actual !== estimate) beat = actual > estimate;
-    if (u) candidates.push({ kind: "earnings", unix: u, beat });
-  }
-  const meeting = row && (row.shareholderMeeting || (row.calendarEvents && row.calendarEvents.shareholderMeeting));
-  const meetingUnix = unixOf(meeting && (meeting.date || meeting.startDate || meeting));
-  if (meetingUnix) candidates.push({ kind: "meeting", unix: meetingUnix, beat: null });
+  [
+    row && row.shareholderMeeting,
+    cal && cal.shareholderMeeting,
+    cal && cal.shareholderMeetingDate,
+    cal && cal.shareHolderMeeting
+  ].forEach((meeting) => {
+    const meetingUnixValue = meetingUnix(meeting);
+    if (meetingUnixValue) candidates.push({ kind: "meeting", unix: meetingUnixValue, beat: null });
+  });
   if (!candidates.length) return null;
   candidates.forEach((c) => { c.days = calendarDays(c.unix, now); });
   candidates.sort((a, b) => {
