@@ -10,4 +10,8 @@ Pages: https://sam-t-dev.github.io/finance-scan/?cat=Stocks
 
 Worker: https://finance-scan-proxy.samtonin-registry.workers.dev/?cat=Stocks
 
+The home board is four boxes: Scanners, Stocks, ETFs, Commodities. Under them are the 20 most traded names, ordered by share volume over the last 7 sessions when the chart feed answers, otherwise by the volume stored on the universe list. Arrows reverse that list of 20.
+
+A stocks scan stays in this browser tab so Back and a stock page do not clear it. Search is the text field only and lists matches after 3 characters. A stock page has a zoomable chart, the loose, tight, technical, confidence, size, and next-event lines, and a Yahoo Finance link.
+
 Screen only. Not advice.
