@@ -1,65 +1,6 @@
-const DEFAULT_RULES = {
-  name: "default",
-  loose: { pe: 35, peg: 1.5, epsBeat: 0.05, de: 1.5, yoy: 0.08 },
-  tight: { pe: 25, fpe: 25, rsiLow: 30, rsiHigh: 70, de: 1, epsBeat: "yes", qoq: 0.05 },
-  babypips: { trendMa: 50, higherMa: 200, slopeBars: 5, rsiMin: 30, rsiChase: 70, pullbackPct: 8, rrMin: 1.5, rewardBars: 126 }
-};
-
-function loadRules() {
-  try {
-    const s = JSON.parse(localStorage.getItem("scan-rules") || "null");
-    if (s && s.loose) {
-      const base = JSON.parse(JSON.stringify(DEFAULT_RULES));
-      const baby = Object.assign(base.babypips, s.babypips || {});
-      if (!s.babypips || s.babypips.rewardBars == null) {
-        baby.pullbackPct = base.babypips.pullbackPct;
-        baby.rrMin = base.babypips.rrMin;
-        baby.rewardBars = base.babypips.rewardBars;
-      }
-      return Object.assign(base, s, { babypips: baby });
-    }
-  } catch (e) {}
-  return JSON.parse(JSON.stringify(DEFAULT_RULES));
-}
-
 function apiBase() {
   if (location.hostname.endsWith("workers.dev")) return "";
   return "https://finance-scan-proxy.samtonin-registry.workers.dev";
-}
-
-function num(v) {
-  if (v == null) return null;
-  if (typeof v === "number") return v;
-  if (typeof v === "object" && v.raw != null) return Number(v.raw);
-  const n = Number(v);
-  return Number.isFinite(n) ? n : null;
-}
-
-function sma(closes, n) {
-  if (closes.length < n) return null;
-  let s = 0;
-  for (let i = closes.length - n; i < closes.length; i++) s += closes[i];
-  return s / n;
-}
-
-function slope(closes, n, bars) {
-  if (closes.length < n + bars) return null;
-  const now = sma(closes, n);
-  const prev = sma(closes.slice(0, -bars), n);
-  if (now == null || prev == null) return null;
-  return now - prev;
-}
-
-function rsi(closes, n) {
-  if (closes.length < n + 1) return null;
-  let g = 0, l = 0;
-  for (let i = closes.length - n; i < closes.length; i++) {
-    const d = closes[i] - closes[i - 1];
-    if (d >= 0) g += d; else l -= d;
-  }
-  if (!l) return 100;
-  const rs = (g / n) / (l / n);
-  return 100 - 100 / (1 + rs);
 }
 
 async function getJson(url) {
@@ -82,85 +23,119 @@ async function loadCloses(sym) {
   return (res.indicators.quote[0].close || []).filter((x) => x != null);
 }
 
-function fiveChecks(row, closes, rules) {
-  const eh = row.earningsHistory && row.earningsHistory.history;
-  let eps = null;
-  if (Array.isArray(eh) && eh.length) {
-    const last = eh[eh.length - 1];
-    const a = num(last.epsActual), e = num(last.epsEstimate);
-    if (a != null && e) eps = (a - e) / Math.abs(e);
-  }
-  const pe = num(row.summaryDetail && row.summaryDetail.trailingPE);
-  const peg = num(row.defaultKeyStatistics && row.defaultKeyStatistics.pegRatio);
-  const deRaw = num(row.financialData && row.financialData.debtToEquity);
-  const de = deRaw != null ? deRaw / 100 : null;
-  const yoy = num(row.financialData && row.financialData.revenueGrowth);
-  const ma20 = sma(closes, 20), ma50 = sma(closes, 50), s20 = slope(closes, 20, 5);
-  const loose = rules.loose;
-  return [
-    pe != null && peg != null && pe < loose.pe && peg < loose.peg,
-    ma20 != null && ma50 != null && s20 != null && ma20 > ma50 && s20 > 0,
-    eps != null && eps > loose.epsBeat,
-    de != null && de < loose.de,
-    yoy != null && yoy > loose.yoy
-  ];
+const state = { running: false, abort: false, passes: [], page: 0, sortKey: null, sortDir: "up" };
+
+function esc(s) {
+  return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-function babySignal(closes, rules) {
-  const b = rules.babypips;
-  const last = closes[closes.length - 1];
-  const trend = sma(closes, b.trendMa);
-  const higher = sma(closes, b.higherMa);
-  const trendSlope = slope(closes, b.trendMa, b.slopeBars);
-  const r = rsi(closes, 14);
-  const bars = b.rewardBars || 126;
-  const window = closes.slice(-bars);
-  const swingHigh = Math.max(...window);
-  const dist = trend != null && trend > 0 ? (last - trend) / trend * 100 : null;
-  const pullback = dist != null && dist >= 0 && dist <= b.pullbackPct;
-  const risk = trend != null ? last - trend : 0;
-  const reward = swingHigh - last;
-  const rr = risk > 0 ? reward / risk : 0;
-  const up = trend != null && last > trend && trendSlope != null && trendSlope > 0 && (higher == null || last > higher);
-  const down = trend != null && last < trend && trendSlope != null && trendSlope < 0;
-  const notChase = r != null && r >= b.rsiMin && r <= b.rsiChase;
-  const buy = up && notChase && pullback && rr >= b.rrMin;
-  const sell = down && (higher != null && last < higher);
-  if (buy) return "buy";
-  if (sell) return "sell";
-  return "hold";
+function sortedPasses() {
+  const rows = state.passes.slice();
+  if (!state.sortKey) return rows;
+  rows.sort((a, b) => compareRows(a, b, state.sortKey, state.sortDir));
+  return rows;
 }
 
-function fmtEta(ms) {
-  const s = Math.max(0, Math.round(ms / 1000));
-  const m = Math.floor(s / 60);
-  const r = s % 60;
-  if (m <= 0) return r + "s";
-  return m + "m " + r + "s";
-}
-
-const state = { running: false, abort: false, passes: [], page: 0, phase: "" };
-
-function drawPasses(host) {
-  const pageSize = 10;
-  const pages = Math.max(1, Math.ceil(state.passes.length / pageSize));
-  if (state.page > pages - 1) state.page = pages - 1;
-  const slice = state.passes.slice(state.page * pageSize, state.page * pageSize + pageSize);
-  host.innerHTML = "";
-  const head = document.createElement("div");
-  head.className = "row head";
-  head.innerHTML = "<span>Ticker</span><span>Title</span><span>Scan results</span><span>BabyPips results</span>";
-  host.appendChild(head);
+function paintList(list, pageLabel) {
+  const rows = sortedPasses();
+  const win = pageWindow(rows.length, state.page, PAGE_SIZE);
+  state.page = win.page;
+  const slice = rows.slice(win.start, win.end);
+  const body = list.querySelectorAll(".row.data");
+  body.forEach((n) => n.remove());
   slice.forEach((row) => {
     const a = document.createElement("a");
-    a.className = "row";
+    a.className = "row data";
     a.href = "index.html?symbol=" + encodeURIComponent(row.symbol) + "&name=" + encodeURIComponent(row.name);
     const baby = row.baby || "—";
     const babyClass = row.baby || "wait";
-    a.innerHTML = '<span class="tick">' + row.symbol + '</span><span class="title">' + row.name + '</span><span class="res pass">pass</span><span class="res ' + babyClass + '">' + baby + '</span>';
-    host.appendChild(a);
+    const tightClass = row.tightPass ? "pass" : "fail";
+    const tightText = row.tightPass ? "pass" : "fail";
+    const conf = row.confidence == null ? "—" : String(row.confidence);
+    const size = row.size || "—";
+    let ev = "";
+    let evClass = "ev";
+    if (row.event && row.event.text) {
+      ev = row.event.text;
+      if (row.event.kind === "earnings" && row.event.beat === true) evClass += " beat";
+      else if (row.event.kind === "earnings" && row.event.beat === false) evClass += " miss";
+    }
+    a.innerHTML = '<span class="tick">' + esc(row.symbol) + '</span><span class="title">' + esc(row.name) + '</span><span class="res pass">pass</span><span class="res ' + tightClass + '">' + tightText + '</span><span class="res ' + babyClass + '">' + esc(baby) + '</span><span class="num">' + esc(conf) + '</span><span class="size">' + esc(size) + '</span><span class="' + evClass + '">' + esc(ev) + '</span>';
+    list.appendChild(a);
   });
-  return pages;
+  if (pageLabel) pageLabel.textContent = pageLabelText(win.page, win.pages, rows.length);
+  saveScan();
+  return win;
+}
+
+function pageLabelText(page, pages, count) {
+  return pageLabel(page, pages, count);
+}
+
+function arrowButtons(key) {
+  const up = document.createElement("button");
+  up.type = "button";
+  up.className = "arr";
+  up.textContent = "\u25b2";
+  up.setAttribute("aria-label", key + " up");
+  const down = document.createElement("button");
+  down.type = "button";
+  down.className = "arr";
+  down.textContent = "\u25bc";
+  down.setAttribute("aria-label", key + " down");
+  up.onclick = () => setSort(key, "up");
+  down.onclick = () => setSort(key, "down");
+  return [up, down];
+}
+
+function titleWithArrows(label, key) {
+  const span = document.createElement("span");
+  span.className = "htitle";
+  span.appendChild(document.createTextNode(label));
+  arrowButtons(key).forEach((b) => span.appendChild(b));
+  return span;
+}
+
+let listEl = null;
+let pageEl = null;
+
+function setSort(key, dir) {
+  state.sortKey = key;
+  state.sortDir = dir;
+  state.page = 0;
+  if (listEl) paintList(listEl, pageEl);
+}
+
+function buildHead(list) {
+  const groups = document.createElement("div");
+  groups.className = "row head groups";
+  const blankA = document.createElement("span");
+  const blankB = document.createElement("span");
+  const fund = document.createElement("span");
+  fund.className = "group";
+  fund.textContent = "Fundamentals";
+  const tech = titleWithArrows("Technical analysis", "tech");
+  const conf = document.createElement("span");
+  conf.className = "confhead";
+  conf.appendChild(titleWithArrows("Confidence", "confidence"));
+  const sub = document.createElement("span");
+  sub.className = "sub";
+  sub.textContent = CONFIDENCE_BLURB;
+  conf.appendChild(sub);
+  groups.append(blankA, blankB, fund, tech, conf, titleWithArrows("Size", "size"), titleWithArrows("Next event", "event"));
+  const cols = document.createElement("div");
+  cols.className = "row head cols";
+  cols.append(
+    titleWithArrows("Ticker", "ticker"),
+    titleWithArrows("Name", "name"),
+    titleWithArrows("Loose", "loose"),
+    titleWithArrows("Tight", "tight"),
+    document.createElement("span"),
+    document.createElement("span"),
+    document.createElement("span"),
+    document.createElement("span")
+  );
+  list.append(groups, cols);
 }
 
 async function runScan(ui) {
@@ -171,6 +146,8 @@ async function runScan(ui) {
   state.page = 0;
   ui.btn.disabled = true;
   ui.spin.style.display = "inline-block";
+  ui._lastEta = Date.now();
+  ui.eta.textContent = "Estimated time of completion …";
   const rules = loadRules();
   let universe = [];
   try {
@@ -185,25 +162,39 @@ async function runScan(ui) {
   universe = universe.slice(0, 1000);
   const started = Date.now();
   let done = 0;
-  const cache = new Map();
   const queue = universe.slice();
   const workers = 4;
+  function noteEta(ms) {
+    if (!shouldPaintEta(Date.now(), ui._lastEta, false)) return;
+    ui._lastEta = Date.now();
+    ui.eta.textContent = etaLine(ms);
+  }
   async function one(item) {
-    const t0 = Date.now();
     try {
       const [quote, closes] = await Promise.all([loadQuote(item.symbol), loadCloses(item.symbol)]);
-      const checks = fiveChecks(quote, closes, rules);
-      if (checks.every(Boolean)) {
-        state.passes.push({ symbol: item.symbol, name: item.name, baby: "", closes });
-        cache.set(item.symbol, closes);
-        drawPasses(ui.list);
-        ui.pageLabel.textContent = (state.page + 1) + " / " + Math.max(1, Math.ceil(state.passes.length / 10));
+      const loose = fiveChecks(quote, closes, rules);
+      if (loose.every(Boolean)) {
+        const tight = tightChecks(quote, closes, rules);
+        state.passes.push({
+          order: state.passes.length,
+          symbol: item.symbol,
+          name: item.name,
+          loosePass: true,
+          tightPass: tight.every(Boolean),
+          tight,
+          baby: "",
+          confidence: null,
+          size: null,
+          event: parseNextEvent(quote),
+          closes
+        });
+        paintList(ui.list, ui.pageLabel);
       }
     } catch (e) {}
     done += 1;
     const avg = (Date.now() - started) / done;
     const left = (universe.length - done) * avg / workers;
-    ui.eta.textContent = "Rules scan " + done + " / " + universe.length + " · " + state.passes.length + " passed · about " + fmtEta(left) + " left";
+    noteEta(left);
   }
   async function pump() {
     while (queue.length && !state.abort) {
@@ -211,20 +202,50 @@ async function runScan(ui) {
       await one(item);
     }
   }
-  ui.eta.textContent = "Scanning top " + universe.length + " by volume";
   await Promise.all(Array.from({ length: workers }, pump));
-  ui.eta.textContent = "Rules scan done. " + state.passes.length + " passed. Starting BabyPips scan.";
+  const babyStarted = Date.now();
   for (let i = 0; i < state.passes.length; i++) {
     const row = state.passes[i];
-    ui.eta.textContent = "BabyPips scan " + (i + 1) + " / " + state.passes.length;
-    try { row.baby = babySignal(row.closes, rules); } catch (e) { row.baby = "hold"; }
+    const spent = Date.now() - babyStarted;
+    const avg = i === 0 ? 40 : spent / i;
+    noteEta((state.passes.length - i) * avg);
+    try {
+      const pack = weekPlus(row.closes, rules);
+      row.baby = pack.signal;
+      row.confidence = confidenceFromChecks(row.tight, pack.checks, row.event);
+      row.size = sizeFromScore(row.confidence, row.event);
+    } catch (e) {
+      row.baby = "hold";
+      row.confidence = confidenceFromChecks(row.tight, [false, false, false, false, false, false], row.event);
+      row.size = sizeFromScore(row.confidence, row.event);
+    }
     delete row.closes;
-    drawPasses(ui.list);
+    paintList(ui.list, ui.pageLabel);
   }
   ui.spin.style.display = "none";
-  ui.eta.textContent = "Done. Rules scan " + state.passes.length + " of " + universe.length + ". BabyPips scan finished.";
+  ui.eta.textContent = "Done. Loose scan " + state.passes.length + " of " + universe.length + ". Technical scan finished.";
   ui.btn.disabled = false;
   state.running = false;
+  saveScan();
+}
+
+function saveScan() {
+  try {
+    const payload = scanPayload(state.passes, state.page, state.sortKey, state.sortDir);
+    sessionStorage.setItem(SCAN_STORE, JSON.stringify(payload));
+  } catch (e) {}
+}
+
+function restoreScan() {
+  try {
+    const data = JSON.parse(sessionStorage.getItem(SCAN_STORE) || "null");
+    if (!data || !Array.isArray(data.passes) || !data.passes.length) return false;
+    state.passes = data.passes;
+    state.page = data.page || 0;
+    state.sortKey = data.sortKey || null;
+    state.sortDir = data.sortDir || "up";
+    return true;
+  } catch (e) { return false; }
 }
 
 function drawHome() {
@@ -232,7 +253,94 @@ function drawHome() {
   board.innerHTML = "";
   const card = document.createElement("section");
   card.className = "card";
-  card.innerHTML = "<h2>Board</h2><div class='cats'><a href='index.html?cat=Stocks'><b>Stocks</b><div class='muted'>Scan top 1,000 by volume</div></a></div>";
+  const h = document.createElement("h2");
+  h.textContent = "Board";
+  const cats = document.createElement("div");
+  cats.className = "cats home";
+  [
+    ["Scanners", "index.html?cat=Scanners", "Open a scan"],
+    ["Stocks", "index.html?cat=Stocks", "Top 1,000 by volume"],
+    ["ETFs", "index.html?cat=ETFs", "No scan yet"],
+    ["Commodities", "index.html?cat=Commodities", "No scan yet"]
+  ].forEach((item) => {
+    const a = document.createElement("a");
+    a.href = item[1];
+    a.innerHTML = "<b>" + esc(item[0]) + "</b><div class='muted'>" + esc(item[2]) + "</div>";
+    cats.appendChild(a);
+  });
+  const head = document.createElement("div");
+  head.className = "wide-head";
+  const title = document.createElement("span");
+  title.className = "htitle";
+  title.textContent = "Most traded, 7 days";
+  const up = document.createElement("button");
+  up.type = "button"; up.className = "arr"; up.textContent = "\u25b2"; up.setAttribute("aria-label", "least traded first");
+  const down = document.createElement("button");
+  down.type = "button"; down.className = "arr"; down.textContent = "\u25bc"; down.setAttribute("aria-label", "most traded first");
+  title.append(up, down);
+  const note = document.createElement("span");
+  note.className = "muted";
+  note.textContent = "Top 20";
+  head.append(title, note);
+  const list = document.createElement("div");
+  list.className = "wides";
+  card.append(h, cats, head, list);
+  board.appendChild(card);
+  const home = { rows: [], dir: "down", label: "listed volume" };
+  function paint() {
+    const ordered = sortByTraded(home.rows, home.dir);
+    list.innerHTML = "";
+    ordered.forEach((row) => {
+      const a = document.createElement("a");
+      a.className = "wide";
+      a.href = "index.html?symbol=" + encodeURIComponent(row.symbol) + "&name=" + encodeURIComponent(row.name);
+      a.innerHTML = "<span><b>" + esc(row.symbol) + "</b> <span class='muted'>" + esc(row.name) + "</span></span><span class='muted'>" + esc(formatVolume(row.traded)) + "</span>";
+      list.appendChild(a);
+    });
+    note.textContent = "Top " + ordered.length + " · " + home.label;
+  }
+  up.onclick = () => { home.dir = "up"; paint(); };
+  down.onclick = () => { home.dir = "down"; paint(); };
+  getJson("universe.json").then(async (universe) => {
+    const seed = topByTraded((universe || []).map((row) => ({ symbol: row.symbol, name: row.name, traded: Number(row.volume) || 0 })), 40);
+    home.rows = seed.slice(0, 20);
+    home.label = "listed volume";
+    paint();
+    const ranked = [];
+    const queue = seed.slice();
+    async function one() {
+      while (queue.length) {
+        const row = queue.shift();
+        let traded = row.traded;
+        try {
+          const chart = await getJson(apiBase() + "/yahoo/chart?symbol=" + encodeURIComponent(row.symbol) + "&range=1mo&interval=1d");
+          const vol = chart.chart.result[0].indicators.quote[0].volume || [];
+          const sum = sumLastVolumes(vol, 7);
+          if (sum != null) traded = sum;
+        } catch (e) {}
+        ranked.push({ symbol: row.symbol, name: row.name, traded });
+      }
+    }
+    await Promise.all([one(), one(), one(), one()]);
+    const seven = ranked.filter((row) => row.traded != null);
+    if (seven.length) {
+      home.rows = topByTraded(seven, 20);
+      home.label = "last 7 sessions";
+      paint();
+    }
+  }).catch(() => { note.textContent = "Could not load the universe list."; });
+}
+
+function drawCategory(cat) {
+  const board = document.getElementById("board");
+  board.innerHTML = "";
+  const card = document.createElement("section");
+  card.className = "card";
+  if (cat === "Scanners") {
+    card.innerHTML = "<div class='sec-head'><h2>Scanners</h2><a class='ghost link' href='index.html'>Back</a></div><div class='wides'><a class='wide' href='index.html?cat=Stocks'><span><b>Stocks</b> <span class='muted'>Loose 5/5 gate, then technical analysis</span></span><span class='muted'>Top 1,000</span></a></div>";
+  } else {
+    card.innerHTML = "<div class='sec-head'><h2>" + esc(cat) + "</h2><a class='ghost link' href='index.html'>Back</a></div><p class='muted'>No scan yet. Names are not invented here.</p>";
+  }
   board.appendChild(card);
 }
 
@@ -248,13 +356,25 @@ function drawStocks() {
   pager.className = "pager";
   const prev = document.createElement("button");
   prev.type = "button"; prev.className = "ghost"; prev.textContent = "<";
-  const pageLabel = document.createElement("span");
-  pageLabel.className = "muted"; pageLabel.textContent = "1 / 1";
+  const pageLabelEl = document.createElement("span");
+  pageLabelEl.className = "muted";
+  pageLabelEl.textContent = pageLabel(0, 1, 0);
   const next = document.createElement("button");
   next.type = "button"; next.className = "ghost"; next.textContent = ">";
-  prev.onclick = () => { state.page = Math.max(0, state.page - 1); drawPasses(list); pageLabel.textContent = (state.page + 1) + " / " + Math.max(1, Math.ceil(state.passes.length / 10)); };
-  next.onclick = () => { const pages = Math.max(1, Math.ceil(state.passes.length / 10)); state.page = Math.min(pages - 1, state.page + 1); drawPasses(list); pageLabel.textContent = (state.page + 1) + " / " + pages; };
-  pager.append(prev, pageLabel, next);
+  const list = document.createElement("div");
+  list.className = "list";
+  listEl = list;
+  pageEl = pageLabelEl;
+  prev.onclick = () => {
+    state.page = Math.max(0, state.page - 1);
+    paintList(list, pageLabelEl);
+  };
+  next.onclick = () => {
+    const win = pageWindow(state.passes.length, state.page + 1, PAGE_SIZE);
+    state.page = win.page;
+    paintList(list, pageLabelEl);
+  };
+  pager.append(prev, pageLabelEl, next);
   head.appendChild(pager);
   const bar = document.createElement("div");
   bar.className = "scan-bar";
@@ -265,14 +385,17 @@ function drawStocks() {
   const spin = document.createElement("span");
   spin.className = "spin"; spin.style.display = "none";
   const eta = document.createElement("span");
-  eta.className = "muted"; eta.textContent = "Top 1,000 by volume. 5/5 first, then BabyPips.";
+  eta.className = "muted"; eta.textContent = "Top 1,000 by volume. Loose 5/5 first, then technical analysis.";
   status.append(spin, eta);
-  const list = document.createElement("div");
-  list.className = "list";
   card.append(head, bar, status, list);
   bar.appendChild(btn);
   board.appendChild(card);
-  btn.onclick = () => runScan({ btn, spin, eta, list, pageLabel });
+  buildHead(list);
+  if (restoreScan()) {
+    paintList(list, pageLabelEl);
+    eta.textContent = "Saved scan restored. " + state.passes.length + " names. Press Scan to run it again.";
+  }
+  btn.onclick = () => runScan({ btn, spin, eta, list, pageLabel: pageLabelEl });
 }
 
 const theme = localStorage.getItem("scan-theme") || "dark";
@@ -285,66 +408,109 @@ document.getElementById("themeBtn").onclick = () => {
   document.getElementById("themeBtn").textContent = n === "dark" ? "Light" : "Dark";
 };
 document.getElementById("menuBtn").onclick = () => document.getElementById("nav").classList.toggle("open");
-document.getElementById("searchForm").onsubmit = (e) => {
-  e.preventDefault();
-  const q = document.getElementById("q").value.trim();
-  if (q) window.open("https://finance.yahoo.com/quote/" + encodeURIComponent(q.toUpperCase()), "_blank");
-};
 
-function explain(closes, rules) {
-  const b = rules.babypips;
-  const last = closes[closes.length - 1];
-  const trend = sma(closes, b.trendMa);
-  const higher = sma(closes, b.higherMa);
-  const trendSlope = slope(closes, b.trendMa, b.slopeBars);
-  const r = rsi(closes, 14);
-  const bars = b.rewardBars || 126;
-  const swingHigh = Math.max(...closes.slice(-bars));
-  const dist = trend ? (last - trend) / trend * 100 : null;
-  const risk = trend != null ? last - trend : 0;
-  const reward = swingHigh - last;
-  const rr = risk > 0 ? reward / risk : 0;
-  const signal = babySignal(closes, rules);
-  const lines = [];
-  lines.push(signal === "buy" ? "Buy, because the week-plus checklist cleared." : signal === "sell" ? "Sell, because the longer trend has broken." : "Hold, because at least one entry box failed.");
-  lines.push("Price is " + last.toFixed(2) + ". The 50-day is " + (trend ? trend.toFixed(2) : "missing") + " and the 200-day is " + (higher ? higher.toFixed(2) : "missing") + ".");
-  lines.push(trendSlope > 0 ? "The 50-day is rising, so the trend gate passes." : "The 50-day is not rising, so the trend gate fails.");
-  lines.push(dist != null && dist >= 0 && dist <= b.pullbackPct ? "It is " + dist.toFixed(1) + "% above the 50-day, inside the " + b.pullbackPct + "% pullback band." : "It is " + (dist == null ? "not" : dist.toFixed(1) + "%") + " above the 50-day, outside the " + b.pullbackPct + "% pullback band.");
-  lines.push(r != null && r >= b.rsiMin && r <= b.rsiChase ? "RSI is " + r.toFixed(0) + ", not chased." : "RSI is " + (r == null ? "missing" : r.toFixed(0)) + ", outside " + b.rsiMin + " to " + b.rsiChase + ".");
-  lines.push("Stop is a close under the 50-day, " + risk.toFixed(2) + " away. The " + bars + "-session high is " + swingHigh.toFixed(2) + ", " + reward.toFixed(2) + " above. Reward to risk is " + rr.toFixed(1) + " against a minimum of " + b.rrMin + ".");
-  return { signal, lines, last, trend, higher, swingHigh, closes };
-}
+const searchForm = document.getElementById("searchForm");
+const searchBox = document.getElementById("q");
+const suggest = document.getElementById("suggest");
+let universeCache = null;
+searchForm.onsubmit = (e) => e.preventDefault();
+searchBox.addEventListener("input", async () => {
+  const q = searchBox.value.trim();
+  suggest.innerHTML = "";
+  if (q.length < 3) { suggest.style.display = "none"; return; }
+  if (!universeCache) {
+    try { universeCache = await getJson("universe.json"); } catch (e) { universeCache = []; }
+  }
+  const hits = searchUniverse(universeCache, q);
+  if (!hits.length) { suggest.style.display = "none"; return; }
+  hits.forEach((hit) => {
+    const a = document.createElement("a");
+    a.href = "index.html?symbol=" + encodeURIComponent(hit.symbol) + "&name=" + encodeURIComponent(hit.name);
+    a.textContent = hit.symbol + " — " + hit.name;
+    suggest.appendChild(a);
+  });
+  suggest.style.display = "block";
+});
+document.addEventListener("click", (e) => {
+  if (!searchForm.contains(e.target)) suggest.style.display = "none";
+});
 
 function drawChart(canvas, pack) {
-  const ctx = canvas.getContext("2d");
-  const w = canvas.width = canvas.clientWidth * 2;
-  const h = canvas.height = canvas.clientHeight * 2;
-  const closes = pack.closes.slice(-180);
-  const series = [closes];
-  const s50 = closes.map((_, i) => sma(pack.closes.slice(0, pack.closes.length - closes.length + i + 1), 50));
-  const s200 = closes.map((_, i) => sma(pack.closes.slice(0, pack.closes.length - closes.length + i + 1), 200));
-  const vals = closes.concat(s50.filter(Boolean), s200.filter(Boolean), [pack.swingHigh]);
-  const lo = Math.min(...vals), hi = Math.max(...vals);
-  const pad = (hi - lo) * 0.08 || 1;
-  function X(i) { return 24 + (w - 36) * i / Math.max(1, closes.length - 1); }
-  function Y(v) { return 16 + (h - 32) * (1 - (v - (lo - pad)) / (hi - lo + pad * 2)); }
-  ctx.clearRect(0, 0, w, h);
-  ctx.fillStyle = "#0b0b0c";
-  ctx.fillRect(0, 0, w, h);
-  ctx.strokeStyle = "#c9a227";
-  ctx.setLineDash([8, 8]);
-  ctx.beginPath(); ctx.moveTo(24, Y(pack.swingHigh)); ctx.lineTo(w - 12, Y(pack.swingHigh)); ctx.stroke();
-  ctx.setLineDash([]);
-  function line(arr, color) {
-    ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath();
-    arr.forEach((v, i) => { if (v == null) return; const x = X(i), y = Y(v); if (i === 0 || arr[i - 1] == null) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
-    ctx.stroke();
+  const full = pack.closes;
+  const view = { start: Math.max(0, full.length - 180), end: full.length };
+  let drag = null;
+  function draw() {
+    const ctx = canvas.getContext("2d");
+    const w = canvas.width = canvas.clientWidth * 2;
+    const h = canvas.height = canvas.clientHeight * 2;
+    const closes = full.slice(view.start, view.end);
+    const s50 = closes.map((_, i) => sma(full.slice(0, view.start + i + 1), 50));
+    const s200 = closes.map((_, i) => sma(full.slice(0, view.start + i + 1), 200));
+    const vals = closes.concat(s50.filter(Boolean), s200.filter(Boolean));
+    if (pack.swingHigh != null) vals.push(pack.swingHigh);
+    const lo = Math.min.apply(null, vals), hi = Math.max.apply(null, vals);
+    const pad = (hi - lo) * 0.08 || 1;
+    function X(i) { return 24 + (w - 36) * i / Math.max(1, closes.length - 1); }
+    function Y(v) { return 16 + (h - 32) * (1 - (v - (lo - pad)) / (hi - lo + pad * 2)); }
+    ctx.clearRect(0, 0, w, h);
+    ctx.fillStyle = "#0b0b0c";
+    ctx.fillRect(0, 0, w, h);
+    if (pack.swingHigh != null) {
+      ctx.strokeStyle = "#c9a227";
+      ctx.setLineDash([8, 8]);
+      ctx.beginPath(); ctx.moveTo(24, Y(pack.swingHigh)); ctx.lineTo(w - 12, Y(pack.swingHigh)); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    function line(arr, color) {
+      ctx.strokeStyle = color; ctx.lineWidth = 2; ctx.beginPath();
+      arr.forEach((v, i) => { if (v == null) return; const x = X(i), y = Y(v); if (i === 0 || arr[i - 1] == null) ctx.moveTo(x, y); else ctx.lineTo(x, y); });
+      ctx.stroke();
+    }
+    line(closes, "#ececec");
+    line(s50, "#3dd68c");
+    line(s200, "#6ea8ff");
+    ctx.fillStyle = "#3dd68c";
+    ctx.beginPath(); ctx.arc(X(closes.length - 1), Y(closes[closes.length - 1]), 5, 0, 7); ctx.fill();
   }
-  line(closes, "#ececec");
-  line(s50, "#3dd68c");
-  line(s200, "#6ea8ff");
-  ctx.fillStyle = "#3dd68c";
-  ctx.beginPath(); ctx.arc(X(closes.length - 1), Y(closes[closes.length - 1]), 5, 0, 7); ctx.fill();
+  canvas.onwheel = (e) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const t = rect.width ? (e.clientX - rect.left) / rect.width : 0.5;
+    const next = zoomWindow(view.start, view.end, full.length, Math.min(1, Math.max(0, t)), e.deltaY < 0);
+    view.start = next.start;
+    view.end = next.end;
+    draw();
+  };
+  canvas.onpointerdown = (e) => {
+    drag = { x: e.clientX, start: view.start, end: view.end };
+    canvas.setPointerCapture(e.pointerId);
+  };
+  canvas.onpointermove = (e) => {
+    if (!drag) return;
+    const rect = canvas.getBoundingClientRect();
+    const span = drag.end - drag.start;
+    const bars = Math.round((drag.x - e.clientX) / Math.max(1, rect.width) * span);
+    const next = panWindow(drag.start, drag.end, full.length, bars);
+    view.start = next.start;
+    view.end = next.end;
+    draw();
+  };
+  canvas.onpointerup = () => { drag = null; };
+  canvas.ondblclick = () => {
+    view.start = Math.max(0, full.length - 180);
+    view.end = full.length;
+    draw();
+  };
+  draw();
+}
+
+function summaryRow(dl, label, value, cls) {
+  const dt = document.createElement("dt");
+  dt.textContent = label;
+  const dd = document.createElement("dd");
+  dd.textContent = value;
+  if (cls) dd.className = cls;
+  dl.append(dt, dd);
 }
 
 async function drawSymbol(symbol, name) {
@@ -352,21 +518,49 @@ async function drawSymbol(symbol, name) {
   board.innerHTML = "";
   const card = document.createElement("section");
   card.className = "card";
-  card.innerHTML = "<div class='sec-head'><h2>" + symbol + "</h2><a class='ghost link' href='index.html?cat=Stocks'>Back</a></div><h1>" + (name || symbol) + "</h1><p class='muted' id='whyStatus'>Loading the chart.</p><canvas id='chartBox'></canvas><div id='why'></div>";
+  card.innerHTML = "<div class='sec-head'><h2>" + esc(symbol) + "</h2><a class='ghost link' href='index.html?cat=Stocks'>Back</a></div><h1>" + esc(name || symbol) + "</h1><p class='price' id='lastPrice'>—</p><p><a class='ghost link' id='yahooLink' href='" + esc(yahooQuoteUrl(symbol)) + "' target='_blank' rel='noopener'>Open in Yahoo Finance</a></p><p class='muted' id='whyStatus'>Loading the chart.</p><canvas id='chartBox'></canvas><p class='muted chart-hint'>Scroll to zoom. Drag to move. Double-click to reset.</p><dl class='facts' id='facts'></dl><div id='why'></div>";
   board.appendChild(card);
+  const facts = document.getElementById("facts");
   try {
+    let quote = {};
+    try { quote = await loadQuote(symbol); } catch (e) {}
     const closes = await loadCloses(symbol);
-    const pack = explain(closes, loadRules());
+    const rules = loadRules();
+    const pack = explainPack(closes, rules);
+    const haveFundamentals = !!(quote.summaryDetail || quote.financialData || quote.earningsHistory);
+    const loose = haveFundamentals ? fiveChecks(quote, closes, rules) : null;
+    const tight = haveFundamentals ? tightChecks(quote, closes, rules) : null;
+    const event = parseNextEvent(quote);
+    const confidence = tight ? confidenceFromChecks(tight, pack.checks, event) : null;
+    const size = confidence == null ? null : sizeFromScore(confidence, event);
+    const price = pack.last;
+    const priceEl = document.getElementById("lastPrice");
+    priceEl.textContent = price.toFixed(2);
     document.getElementById("whyStatus").textContent = pack.signal.toUpperCase();
     document.getElementById("whyStatus").className = "res " + pack.signal;
+    summaryRow(facts, "Loose", loose ? (loose.every(Boolean) ? "pass" : "fail") : "—", loose ? (loose.every(Boolean) ? "pass" : "fail") : "");
+    summaryRow(facts, "Tight", tight ? (tight.every(Boolean) ? "pass" : "fail") : "—", tight ? (tight.every(Boolean) ? "pass" : "fail") : "");
+    summaryRow(facts, "Technical analysis", pack.signal, pack.signal);
+    summaryRow(facts, "Confidence", confidence == null ? "—" : String(confidence));
+    summaryRow(facts, "Size", size || "—");
+    const evText = event && event.text ? event.text : "";
+    const evCls = event && event.kind === "earnings" && event.beat === true ? "beat" : event && event.kind === "earnings" && event.beat === false ? "miss" : "";
+    summaryRow(facts, "Next event", evText, evCls);
+    summaryRow(facts, "50-day", pack.trend ? pack.trend.toFixed(2) : "—");
+    summaryRow(facts, "200-day", pack.higher ? pack.higher.toFixed(2) : "—");
+    summaryRow(facts, "RSI", pack.r == null ? "—" : pack.r.toFixed(0));
     const why = document.getElementById("why");
-    pack.lines.forEach((line) => { const p = document.createElement("p"); p.className = "why"; p.textContent = line; why.appendChild(p); });
+    pack.lines.forEach((line) => { const para = document.createElement("p"); para.className = "why"; para.textContent = line; why.appendChild(para); });
     drawChart(document.getElementById("chartBox"), pack);
   } catch (e) {
     document.getElementById("whyStatus").textContent = "No chart data.";
   }
 }
 
-if (new URLSearchParams(location.search).get("symbol")) drawSymbol(new URLSearchParams(location.search).get("symbol"), new URLSearchParams(location.search).get("name"));
-else if (new URLSearchParams(location.search).get("cat") === "Stocks") drawStocks();
+window.addEventListener("pagehide", () => { if (state.passes.length) saveScan(); });
+
+const boot = new URLSearchParams(location.search);
+if (boot.get("symbol")) drawSymbol(boot.get("symbol"), boot.get("name"));
+else if (boot.get("cat") === "Stocks") drawStocks();
+else if (boot.get("cat") === "Scanners" || boot.get("cat") === "ETFs" || boot.get("cat") === "Commodities") drawCategory(boot.get("cat"));
 else drawHome();
