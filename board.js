@@ -331,7 +331,11 @@ function drawHome() {
       const a = document.createElement("a");
       a.className = "wide";
       a.href = "index.html?symbol=" + encodeURIComponent(row.symbol) + "&name=" + encodeURIComponent(row.name);
-      a.innerHTML = "<span><b>" + esc(row.symbol) + "</b> <span class='muted'>" + esc(row.name) + "</span></span><span class='muted'>" + esc(formatVolume(row.traded)) + "</span>";
+      const move = formatDayMove(row.chg, row.pct);
+      const tone = row.chg > 0 ? "up" : row.chg < 0 ? "down" : "flat";
+      const price = row.last != null && Number.isFinite(row.last) ? row.last.toFixed(2) : "—";
+      const priceTone = move ? tone : "flat";
+      a.innerHTML = "<span><b>" + esc(row.symbol) + "</b> <span class='muted'>" + esc(row.name) + "</span></span><span class='quote'><span class='qprice " + priceTone + "'>" + esc(price) + "</span>" + (move ? "<span class='qchg " + tone + "'>" + esc(move) + "</span>" : "<span class='qchg muted'>—</span>") + "</span>";
       list.appendChild(a);
     });
     note.textContent = "Top " + ordered.length + " · " + home.label;
@@ -349,13 +353,21 @@ function drawHome() {
       while (queue.length) {
         const row = queue.shift();
         let traded = row.traded;
+        let last = null, chg = null, pct = null;
         try {
           const chart = await getJson(apiBase() + "/yahoo/chart?symbol=" + encodeURIComponent(row.symbol) + "&range=1mo&interval=1d");
-          const vol = chart.chart.result[0].indicators.quote[0].volume || [];
-          const sum = sumLastVolumes(vol, 7);
-          if (sum != null) traded = sum;
+          try {
+            const vol = chart.chart.result[0].indicators.quote[0].volume || [];
+            const sum = sumLastVolumes(vol, 7);
+            if (sum != null) traded = sum;
+          } catch (e) {}
+          const q = quoteFromChart(chart);
+          if (q) { last = q.last; chg = q.chg; pct = q.pct; }
         } catch (e) {}
-        ranked.push({ symbol: row.symbol, name: row.name, traded });
+        const item = { symbol: row.symbol, name: row.name, traded, last, chg, pct };
+        ranked.push(item);
+        const shown = home.rows.find((r) => r.symbol === row.symbol);
+        if (shown && last != null) { shown.last = last; shown.chg = chg; shown.pct = pct; paint(); }
       }
     }
     await Promise.all([one(), one(), one(), one()]);
