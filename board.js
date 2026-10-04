@@ -40,12 +40,20 @@ async function loadChart(sym, range) {
     closes.push(raw[i]);
     times.push(stamps[i] == null ? null : Number(stamps[i]));
   }
-  return { closes, times };
+  return { closes, times, events: res.events || null };
 }
 
 async function loadCloses(sym) {
   const series = await loadChart(sym, "1y");
   return series.closes;
+}
+
+async function loadNews(sym) {
+  try {
+    return await getJson(apiBase() + "/yahoo/news?symbol=" + encodeURIComponent(sym));
+  } catch (e) {
+    return null;
+  }
 }
 
 const state = { running: false, abort: false, passes: [], page: 0, sortKey: "confidence", sortDir: "down" };
@@ -69,9 +77,13 @@ function paintList(list, pageLabel) {
   const body = list.querySelectorAll(".row.data");
   body.forEach((n) => n.remove());
   slice.forEach((row) => {
-    const a = document.createElement("a");
+    const href = "index.html?symbol=" + encodeURIComponent(row.symbol) + "&name=" + encodeURIComponent(row.name);
+    const a = document.createElement("div");
     a.className = "row data";
-    a.href = "index.html?symbol=" + encodeURIComponent(row.symbol) + "&name=" + encodeURIComponent(row.name);
+    a.addEventListener("click", (e) => {
+      if (e.target.closest && e.target.closest("a")) return;
+      location.href = href;
+    });
     const baby = row.baby || "—";
     const babyClass = row.baby || "wait";
     const tightClass = row.tightPass ? "pass" : "fail";
@@ -85,7 +97,49 @@ function paintList(list, pageLabel) {
       if (row.event.kind === "earnings" && row.event.beat === true) evClass += " beat";
       else if (row.event.kind === "earnings" && row.event.beat === false) evClass += " miss";
     }
-    a.innerHTML = '<span class="tick">' + esc(row.symbol) + '</span><span class="title">' + esc(row.name) + '</span><span class="res pass">pass</span><span class="res ' + tightClass + '">' + tightText + '</span><span class="res ' + babyClass + '">' + esc(baby) + '</span><span class="num">' + esc(conf) + '</span><span class="size">' + esc(size) + '</span><span class="' + evClass + '">' + esc(ev) + '</span>';
+    const tick = document.createElement("a");
+    tick.className = "tick";
+    tick.href = href;
+    tick.textContent = row.symbol;
+    const title = document.createElement("a");
+    title.className = "title";
+    title.href = href;
+    title.textContent = row.name;
+    const looseEl = document.createElement("span");
+    looseEl.className = "res pass";
+    looseEl.textContent = "pass";
+    const tightEl = document.createElement("span");
+    tightEl.className = "res " + tightClass;
+    tightEl.textContent = tightText;
+    const babyEl = document.createElement("span");
+    babyEl.className = "res " + babyClass;
+    babyEl.textContent = baby;
+    const confEl = document.createElement("span");
+    confEl.className = "num";
+    confEl.textContent = conf;
+    const sizeEl = document.createElement("span");
+    sizeEl.className = "size";
+    sizeEl.textContent = size;
+    const evEl = document.createElement("span");
+    evEl.className = evClass;
+    evEl.textContent = ev;
+    const newsEl = document.createElement("span");
+    newsEl.className = "news";
+    if (row.news && row.news.title && row.news.link) {
+      if (row.news.text) {
+        const when = document.createElement("span");
+        when.className = "when";
+        when.textContent = row.news.text + " ";
+        newsEl.appendChild(when);
+      }
+      const link = document.createElement("a");
+      link.href = row.news.link;
+      link.target = "_blank";
+      link.rel = "noopener";
+      link.textContent = row.news.title;
+      newsEl.appendChild(link);
+    }
+    a.append(tick, title, looseEl, tightEl, babyEl, confEl, sizeEl, evEl, newsEl);
     list.appendChild(a);
   });
   if (pageLabel) pageLabel.textContent = pageLabelText(win.page, win.pages, rows.length);
@@ -159,7 +213,7 @@ function buildHead(list) {
   const conf = document.createElement("span");
   conf.className = "confhead";
   conf.appendChild(titleWithArrows("Confidence", "confidence"));
-  groups.append(blankA, blankB, fund, tech, conf, titleWithArrows("Size", "size"), titleWithArrows("Next event", "event"));
+  groups.append(blankA, blankB, fund, tech, conf, titleWithArrows("Size", "size"), titleWithArrows("Event", "event"), titleWithArrows("News", "news"));
   const cols = document.createElement("div");
   cols.className = "row head cols";
   cols.append(
@@ -167,6 +221,7 @@ function buildHead(list) {
     titleWithArrows("Name", "name"),
     titleWithArrows("Loose", "loose"),
     titleWithArrows("Tight", "tight"),
+    document.createElement("span"),
     document.createElement("span"),
     document.createElement("span"),
     document.createElement("span"),
@@ -208,7 +263,12 @@ async function runScan(ui) {
   }
   async function one(item) {
     try {
-      const [quote, closes] = await Promise.all([loadQuote(item.symbol), loadCloses(item.symbol)]);
+      const [quote, series, newsRaw] = await Promise.all([
+        loadQuote(item.symbol).catch(() => ({})),
+        loadChart(item.symbol, "1y"),
+        loadNews(item.symbol)
+      ]);
+      const closes = series.closes;
       const loose = fiveChecks(quote, closes, rules);
       if (loose.every(Boolean)) {
         const tight = tightChecks(quote, closes, rules);
@@ -222,7 +282,8 @@ async function runScan(ui) {
           baby: "",
           confidence: null,
           size: null,
-          event: parseNextEvent(quote),
+          event: parseListedEvent(quote, series.events),
+          news: parseNews(newsRaw),
           closes
         });
         paintList(ui.list, ui.pageLabel);
@@ -249,12 +310,12 @@ async function runScan(ui) {
     try {
       const pack = weekPlus(row.closes, rules);
       row.baby = pack.signal;
-      row.confidence = confidenceFromChecks(row.tight, pack.checks, row.event);
-      row.size = sizeFromScore(row.confidence, row.event);
+      row.confidence = confidenceFromChecks(row.tight, pack.checks, row.event, row.news);
+      row.size = sizeFromScore(row.confidence, row.event, row.news);
     } catch (e) {
       row.baby = "hold";
-      row.confidence = confidenceFromChecks(row.tight, [false, false, false, false, false, false], row.event);
-      row.size = sizeFromScore(row.confidence, row.event);
+      row.confidence = confidenceFromChecks(row.tight, [false, false, false, false, false, false], row.event, row.news);
+      row.size = sizeFromScore(row.confidence, row.event, row.news);
     }
     delete row.closes;
     paintList(ui.list, ui.pageLabel);
@@ -606,7 +667,9 @@ async function drawSymbol(symbol, name) {
   const facts = document.getElementById("facts");
   try {
     let quote = {};
+    let news = null;
     try { quote = await loadQuote(symbol); } catch (e) {}
+    try { news = parseNews(await loadNews(symbol)); } catch (e) {}
     const series = await loadChart(symbol, "1y");
     const closes = series.closes;
     const rules = loadRules();
@@ -615,9 +678,9 @@ async function drawSymbol(symbol, name) {
     const haveFundamentals = !!(quote.summaryDetail || quote.financialData || quote.earningsHistory);
     const loose = haveFundamentals ? fiveChecks(quote, closes, rules) : null;
     const tight = haveFundamentals ? tightChecks(quote, closes, rules) : null;
-    const event = parseNextEvent(quote);
-    const confidence = tight ? confidenceFromChecks(tight, pack.checks, event) : null;
-    const size = confidence == null ? null : sizeFromScore(confidence, event);
+    const event = parseListedEvent(quote, series.events);
+    const confidence = tight ? confidenceFromChecks(tight, pack.checks, event, news) : null;
+    const size = confidence == null ? null : sizeFromScore(confidence, event, news);
     const price = pack.last;
     const priceEl = document.getElementById("lastPrice");
     priceEl.textContent = price.toFixed(2);
@@ -630,12 +693,28 @@ async function drawSymbol(symbol, name) {
     summaryRow(facts, "Size", size || "\u2014");
     const evText = event && event.text ? event.text : "";
     const evCls = event && event.kind === "earnings" && event.beat === true ? "beat" : event && event.kind === "earnings" && event.beat === false ? "miss" : "";
-    summaryRow(facts, "Next event", evText, evCls);
+    summaryRow(facts, "Event", evText, evCls);
+    const newsDt = document.createElement("dt");
+    newsDt.textContent = "News";
+    const newsDd = document.createElement("dd");
+    if (news && news.title && news.link) {
+      if (news.text) newsDd.appendChild(document.createTextNode(news.text + " "));
+      const link = document.createElement("a");
+      link.href = news.link;
+      link.target = "_blank";
+      link.rel = "noopener";
+      link.textContent = news.title;
+      newsDd.appendChild(link);
+    }
+    facts.append(newsDt, newsDd);
     summaryRow(facts, "50-day", pack.trend ? pack.trend.toFixed(2) : "\u2014");
     summaryRow(facts, "200-day", pack.higher ? pack.higher.toFixed(2) : "\u2014");
     summaryRow(facts, "RSI", pack.r == null ? "\u2014" : pack.r.toFixed(0));
     const why = document.getElementById("why");
-    pack.lines.forEach((line) => { const para = document.createElement("p"); para.className = "why"; para.textContent = line; why.appendChild(para); });
+    const moveLine = newsMoveLine(news);
+    const lines = pack.lines.slice();
+    if (moveLine) lines.push(moveLine);
+    lines.forEach((line) => { const para = document.createElement("p"); para.className = "why"; para.textContent = line; why.appendChild(para); });
     drawChart(document.getElementById("chartBox"), pack);
   } catch (e) {
     document.getElementById("whyStatus").textContent = "No chart data.";

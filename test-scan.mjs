@@ -5,7 +5,7 @@ import assert from "assert";
 const src = fs.readFileSync(new URL("./scan-logic.js", import.meta.url), "utf8");
 const sandbox = { localStorage: { getItem: () => null, setItem() {} }, console, Date, Math, Number, JSON, Object, Array, String };
 vm.createContext(sandbox);
-vm.runInContext(src + "\nglobalThis.__t = { PAGE_SIZE, CONFIDENCE_BLURB, DEFAULT_RULES, fiveChecks, passesLoose, tightChecks, weekPlus, babySignal, parseNextEvent, confidenceFromChecks, sizeFromScore, etaLine, shouldPaintEta, pageWindow, pageLabel, compareRows, eventText, calendarDays, searchUniverse, topByTraded, sortByTraded, sumLastVolumes, zoomWindow, panWindow, scanPayload, formatVolume, quoteFromChart, formatDayMove, yahooQuoteUrl, SCAN_STORE };\n", sandbox);
+vm.runInContext(src + "\nglobalThis.__t = { PAGE_SIZE, CONFIDENCE_BLURB, DEFAULT_RULES, fiveChecks, passesLoose, tightChecks, weekPlus, babySignal, parseNextEvent, parseListedEvent, confidenceFromChecks, sizeFromScore, parseNews, isMaterialHeadline, newsMoveLine, newsAgeText, etaLine, shouldPaintEta, pageWindow, pageLabel, compareRows, eventText, calendarDays, searchUniverse, topByTraded, sortByTraded, sumLastVolumes, zoomWindow, panWindow, scanPayload, formatVolume, quoteFromChart, formatDayMove, yahooQuoteUrl, SCAN_STORE };\n", sandbox);
 const t = sandbox.__t;
 const rules = t.DEFAULT_RULES;
 
@@ -230,5 +230,63 @@ assert.match(board, /formatDayMove/);
 assert.match(css, /\.qchg\.up/);
 assert.match(css, /\.qchg\.down/);
 assert.doesNotMatch(board, /regularMarketPrice:\s*\d/);
+
+
+assert.equal(t.confidenceFromChecks(all, all, null, { material: true }), 50);
+assert.equal(t.confidenceFromChecks(all, all, { kind: "earnings", days: 3, beat: null }, { material: true }), 50);
+assert.equal(t.confidenceFromChecks(all, all, { kind: "meeting", days: 30, beat: null }, { material: false }), 100);
+assert.equal(t.sizeFromScore(100, null, { material: true }), "low");
+assert.equal(t.sizeFromScore(100, { kind: "meeting", days: 30, beat: null }, { material: true }), "low");
+assert.equal(t.sizeFromScore(90, { kind: "meeting", days: 30, beat: null }, null), "high");
+
+const olderPast = {
+  calendarEvents: { earnings: { earningsDate: [{ raw: Math.floor(now / 1000) + 3 * day }] } },
+  earnings: { earningsChart: { quarterly: [{ reportedDate: { raw: Math.floor(now / 1000) - 40 * day }, actual: { raw: 2 }, estimate: { raw: 1 } }] } }
+};
+assert.equal(t.parseNextEvent(olderPast, now).text, "Earnings 40 days ago");
+assert.equal(t.parseNextEvent(olderPast, now).beat, true);
+
+const chartEarn = { chartEarnings: { "1": { date: Math.floor(now / 1000) - 3 * day, epsActual: 1.1, epsEstimate: 1.4 } } };
+assert.equal(t.parseNextEvent(chartEarn, now).text, "Earnings 3 days ago");
+assert.equal(t.parseNextEvent(chartEarn, now).beat, false);
+assert.equal(t.parseListedEvent({}, { earnings: { "1": { date: Math.floor(now / 1000) + 3 * day } } }, now).text, "Earnings in 3 days");
+assert.equal(t.parseListedEvent({}, { dividends: { "1": { date: Math.floor(now / 1000) - 1 * day, amount: 1 } } }, now), null);
+
+const newsNow = now;
+const newsPayload = { news: [
+  { title: "Energy roundup", link: "https://finance.yahoo.com/m/roundup.html", providerPublishTime: Math.floor(newsNow / 1000) - 1 * day },
+  { title: "Wells Fargo Downgrade hits Exxon", link: "https://finance.yahoo.com/news/downgrade.html", providerPublishTime: Math.floor(newsNow / 1000) - 2 * day },
+  { title: "Old oil note", link: "https://finance.yahoo.com/news/old.html", providerPublishTime: Math.floor(newsNow / 1000) - 20 * day }
+]};
+const parsedNews = t.parseNews(newsPayload, newsNow);
+assert.equal(parsedNews.title, "Energy roundup");
+assert.equal(parsedNews.link, "https://finance.yahoo.com/m/roundup.html");
+assert.equal(parsedNews.text, "1 day ago");
+assert.equal(parsedNews.material, true);
+assert.equal(parsedNews.materialTitle, "Wells Fargo Downgrade hits Exxon");
+assert.equal(t.isMaterialHeadline("AI and Oil Shape Market Leadership"), true);
+assert.equal(t.isMaterialHeadline("Energy roundup"), false);
+assert.equal(t.parseNews({ news: [] }, newsNow), null);
+assert.equal(t.parseNews({ news: [{ title: "No link" }] }, newsNow), null);
+const line = t.newsMoveLine(parsedNews);
+assert.match(line, /Headline 2 days ago/);
+assert.match(line, /Downgrade/);
+assert.match(line, /Headline only/);
+assert.doesNotMatch(line, /article says|full story|we read/);
+const namesNews = names.map((r, i) => Object.assign({}, r, { news: i === 0 ? { days: -1, title: "a", link: "https://e.example/a" } : i === 1 ? { days: -4, title: "b", link: "https://e.example/b" } : null }));
+assert.deepEqual(namesNews.slice().sort((a, b) => t.compareRows(a, b, "news", "down")).map((r) => r.symbol), ["MSFT", "AAPL", "ZZZ"]);
+
+assert.match(board, /titleWithArrows\("Event"/);
+assert.doesNotMatch(board, /Next event/);
+assert.match(board, /titleWithArrows\("News"/);
+assert.match(board, /parseListedEvent/);
+assert.match(board, /parseNews/);
+assert.match(board, /newsMoveLine/);
+assert.match(board, /loadNews/);
+assert.match(css, /\.news a/);
+assert.match(board, /sortKey: "confidence"/);
+assert.match(board, /quote-card/);
+assert.match(board, /Most traded, 7 days/);
+
 
 console.log("ok — stocks scan tests passed");

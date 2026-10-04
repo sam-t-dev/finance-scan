@@ -1,6 +1,6 @@
 const PAGE_SIZE = 100;
 
-const CONFIDENCE_BLURB = "Percent of 6 tight and 6 technical checks. Halved if an event is inside 5 days. A beat in the last 5 days adds 10; a miss subtracts 10.";
+const CONFIDENCE_BLURB = "Percent of 6 tight and 6 technical checks. Halved if an event is inside 5 days or a material headline from the last 5 days (earnings, oil, guidance, lawsuit, downgrade). A beat in the last 5 days adds 10; a miss subtracts 10.";
 
 const DEFAULT_RULES = {
   name: "default",
@@ -213,6 +213,21 @@ function meetingUnix(meeting) {
   return unixOf(meeting.date || meeting.startDate || meeting.meetingDate || meeting.shareholderMeetingDate || meeting);
 }
 
+function pushChartEarnings(candidates, earnings) {
+  if (!earnings) return;
+  const list = Array.isArray(earnings) ? earnings : (typeof earnings === "object" ? Object.keys(earnings).map((k) => earnings[k]) : []);
+  list.forEach((item) => {
+    if (item == null) return;
+    const u = unixOf(typeof item === "object" ? (item.date || item.reportedDate || item.reportDate || item.timestamp || item.raw) : item);
+    if (!u) return;
+    const actual = num(item && (item.epsActual != null ? item.epsActual : item.actual));
+    const estimate = num(item && (item.epsEstimate != null ? item.epsEstimate : item.estimate));
+    let beat = null;
+    if (actual != null && estimate != null && actual !== estimate) beat = actual > estimate;
+    candidates.push({ kind: "earnings", unix: u, beat });
+  });
+}
+
 function parseNextEvent(row, nowMs) {
   const now = nowMs == null ? Date.now() : nowMs;
   const candidates = [];
@@ -234,6 +249,7 @@ function parseNextEvent(row, nowMs) {
       candidates.push({ kind: "earnings", unix: u, beat });
     });
   }
+  pushChartEarnings(candidates, row && row.chartEarnings);
   [
     row && row.shareholderMeeting,
     cal && cal.shareholderMeeting,
@@ -245,7 +261,9 @@ function parseNextEvent(row, nowMs) {
   });
   if (!candidates.length) return null;
   candidates.forEach((c) => { c.days = calendarDays(c.unix, now); });
-  candidates.sort((a, b) => {
+  const past = candidates.filter((c) => c.days <= 0);
+  const pool = past.length ? past : candidates;
+  pool.sort((a, b) => {
     const da = Math.abs(a.days), db = Math.abs(b.days);
     if (da !== db) return da - db;
     const aKnown = a.beat != null, bKnown = b.beat != null;
@@ -253,23 +271,37 @@ function parseNextEvent(row, nowMs) {
     if ((a.days >= 0) !== (b.days >= 0)) return a.days >= 0 ? -1 : 1;
     return 0;
   });
-  const best = candidates[0];
+  const best = pool[0];
   const beat = best.kind === "earnings" && best.days <= 0 ? best.beat : null;
   return { kind: best.kind, days: best.days, beat, text: eventText(best.kind, best.days) };
 }
 
-function confidenceFromChecks(tight, tech, event) {
+function parseListedEvent(quote, chartEvents, nowMs) {
+  const row = Object.assign({}, quote || {});
+  if (chartEvents && chartEvents.earnings) row.chartEarnings = chartEvents.earnings;
+  return parseNextEvent(row, nowMs);
+}
+
+function eventInside5(event) {
+  return !!(event && event.days != null && Math.abs(event.days) <= 5);
+}
+
+function materialNewsInside5(news) {
+  return !!(news && news.material);
+}
+
+function confidenceFromChecks(tight, tech, event, news) {
   const checks = (tight || []).concat(tech || []);
   const total = checks.length || 1;
   let score = Math.round(100 * checks.filter(Boolean).length / total);
-  if (event && event.days != null && Math.abs(event.days) <= 5) score = Math.round(score / 2);
+  if (eventInside5(event) || materialNewsInside5(news)) score = Math.round(score / 2);
   if (event && event.kind === "earnings" && event.days != null && event.days <= 0 && event.days >= -5 && event.beat != null) {
     score += event.beat ? 10 : -10;
   }
   return Math.max(0, Math.min(100, score));
 }
 
-function sizeFromScore(score, event) {
+function sizeFromScore(score, event, news) {
   const order = ["low", "medium", "high"];
   let size = score >= 80 ? "high" : score >= 50 ? "medium" : "low";
   if (event && event.kind === "earnings" && event.days != null && event.days <= 0 && event.days >= -5 && event.beat != null) {
@@ -278,8 +310,57 @@ function sizeFromScore(score, event) {
     if (i > 2) i = 2;
     size = order[i];
   }
-  if (event && event.days != null && Math.abs(event.days) <= 5) size = "low";
+  if (eventInside5(event) || materialNewsInside5(news)) size = "low";
   return size;
+}
+
+function isMaterialHeadline(title) {
+  return /\b(earnings|oil|crude|guidance|lawsuit|lawsuits|downgrade|downgraded)\b/i.test(String(title || ""));
+}
+
+function newsAgeText(days) {
+  if (days === 0) return "today";
+  const n = Math.abs(days);
+  if (days > 0) return "in " + n + (n === 1 ? " day" : " days");
+  return n + (n === 1 ? " day ago" : " days ago");
+}
+
+function parseNews(payload, nowMs) {
+  const now = nowMs == null ? Date.now() : nowMs;
+  const list = payload && (payload.news || payload.items);
+  if (!Array.isArray(list)) return null;
+  const stories = [];
+  list.forEach((item) => {
+    if (!item || typeof item !== "object") return;
+    const title = item.title == null ? "" : String(item.title).trim();
+    const link = item.link || item.url || "";
+    const unix = unixOf(item.providerPublishTime != null ? item.providerPublishTime : (item.pubDate || item.published));
+    if (!title || !link || !/^https?:\/\//i.test(String(link)) || !unix) return;
+    stories.push({ title, link: String(link), unix, days: calendarDays(unix, now), material: isMaterialHeadline(title) });
+  });
+  if (!stories.length) return null;
+  stories.sort((a, b) => b.unix - a.unix);
+  const latest = stories[0];
+  const hits = stories.filter((story) => story.material && story.days <= 0 && story.days >= -5);
+  const hit = hits.length ? hits[0] : null;
+  return {
+    title: latest.title,
+    link: latest.link,
+    days: latest.days,
+    text: newsAgeText(latest.days),
+    material: !!hit,
+    materialTitle: hit ? hit.title : null,
+    materialDays: hit ? hit.days : null,
+    materialLink: hit ? hit.link : null
+  };
+}
+
+function newsMoveLine(news) {
+  if (!news || !news.material || !news.materialTitle) return null;
+  let title = String(news.materialTitle);
+  if (title.length > 110) title = title.slice(0, 107).trim() + "...";
+  const when = news.materialDays == null ? "recently" : newsAgeText(news.materialDays);
+  return "Headline " + when + ': "' + title + '". Headline only, so this may be why the price moved.';
 }
 
 function fmtEta(ms) {
@@ -362,6 +443,14 @@ function compareRows(a, b, key, dir) {
     const kb = eventSortKey(b.event, up);
     if (ka[0] !== kb[0]) return ka[0] - kb[0];
     return ka[1] - kb[1] || tie;
+  }
+  if (key === "news") {
+    const days = (row) => row.news && row.news.days != null ? row.news.days : null;
+    if (days(a) == null && days(b) == null) return tie;
+    if (days(a) == null) return 1;
+    if (days(b) == null) return -1;
+    const d = days(a) - days(b);
+    return (up ? d : -d) || tie;
   }
   return tie;
 }
@@ -458,7 +547,8 @@ function scanPayload(passes, page, sortKey, sortDir) {
       baby: r.baby || "",
       confidence: r.confidence == null ? null : r.confidence,
       size: r.size || null,
-      event: r.event || null
+      event: r.event || null,
+      news: r.news || null
     })),
     page: page || 0,
     sortKey: sortKey || null,
