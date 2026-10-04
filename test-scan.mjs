@@ -5,7 +5,7 @@ import assert from "assert";
 const src = fs.readFileSync(new URL("./scan-logic.js", import.meta.url), "utf8");
 const sandbox = { localStorage: { getItem: () => null, setItem() {} }, console, Date, Math, Number, JSON, Object, Array, String };
 vm.createContext(sandbox);
-vm.runInContext(src + "\nglobalThis.__t = { PAGE_SIZE, CONFIDENCE_BLURB, DEFAULT_RULES, fiveChecks, passesLoose, tightChecks, weekPlus, babySignal, parseNextEvent, parseListedEvent, confidenceFromChecks, sizeFromScore, parseNews, isMaterialHeadline, newsMoveLine, newsAgeText, etaLine, shouldPaintEta, pageWindow, pageLabel, compareRows, eventText, calendarDays, searchUniverse, topByTraded, sortByTraded, sumLastVolumes, zoomWindow, panWindow, scanPayload, formatVolume, quoteFromChart, formatDayMove, yahooQuoteUrl, SCAN_STORE, SCAN_MAX_AGE_MS, scanSavedFresh, savedScanLine };\n", sandbox);
+vm.runInContext(src + "\nglobalThis.__t = { PAGE_SIZE, CONFIDENCE_BLURB, DEFAULT_RULES, fiveChecks, passesLoose, tightChecks, weekPlus, babySignal, parseNextEvent, parseListedEvent, confidenceFromChecks, sizeFromScore, parseNews, isMaterialHeadline, newsMoveLine, newsAgeText, etaLine, shouldPaintEta, pageWindow, pageLabel, compareRows, eventText, calendarDays, searchUniverse, topByTraded, sortByTraded, sumLastVolumes, zoomWindow, panWindow, scanPayload, formatVolume, quoteFromChart, formatDayMove, yahooQuoteUrl, SCAN_STORE, SCAN_MAX_AGE_MS, scanSavedFresh, savedScanLine, fundamentalCell, fundamentalLabel, parseStockAnalysisStats, buildSecondSource, revenueGrowthFromSeries, applySecondSource, stockAnalysisUrls, sleeveSymbols, isSleeveSymbol, usesStockFundamentals, isRateHeadline, isAiSectorHeadline };\n", sandbox);
 const t = sandbox.__t;
 const rules = t.DEFAULT_RULES;
 
@@ -297,5 +297,80 @@ assert.match(board, /sortKey: "confidence"/);
 assert.match(board, /quote-card/);
 assert.match(board, /Most traded, 7 days/);
 
+
+
+assert.equal(t.confidenceFromChecks(null, all, null), 100);
+assert.equal(t.confidenceFromChecks(null, half, null), 50);
+assert.equal(t.fundamentalCell("loose", {}, closes, rules), "missing");
+assert.equal(t.fundamentalCell("tight", {}, closes, rules), "missing");
+assert.equal(t.fundamentalLabel("missing"), "\u2014");
+assert.equal(t.fundamentalLabel("unconfirmed"), "\u2014");
+assert.equal(t.fundamentalLabel("pass"), "pass");
+assert.equal(t.fundamentalLabel("fail"), "fail");
+assert.notEqual(t.fundamentalLabel("missing"), "fail");
+assert.notEqual(t.fundamentalLabel("missing"), "pass");
+const partial = {
+  summaryDetail: { trailingPE: { raw: null }, forwardPE: { raw: 10 } },
+  defaultKeyStatistics: { pegRatio: { raw: 1 } },
+  financialData: { debtToEquity: { raw: 40 }, revenueGrowth: { raw: 0.2 } },
+  earningsHistory: { history: [{ epsActual: { raw: 2 }, epsEstimate: { raw: 1 } }] },
+  earnings: { financialsChart: { quarterly: [{ revenue: { raw: 100 } }, { revenue: { raw: 120 } }] } }
+};
+assert.equal(t.fundamentalCell("loose", partial, closes, rules), "missing");
+assert.equal(t.fundamentalCell("tight", partial, closes, rules), "missing");
+const rich = JSON.parse(JSON.stringify(quote));
+rich.summaryDetail.trailingPE = { raw: 80 };
+assert.equal(t.fundamentalCell("loose", rich, closes, rules), "fail");
+assert.equal(t.fundamentalCell("loose", quote, closes, rules), "pass");
+const snippet = '"pe","PE Ratio","20","20.0","pegRatio","PEG Ratio","1.1","1.10","peForward","Forward PE","18","18","debtEquity","Debt / Equity","0.40"';
+const parsedStats = t.parseStockAnalysisStats(snippet);
+assert.equal(parsedStats.pe, 20);
+assert.equal(parsedStats.peg, 1.1);
+assert.equal(parsedStats.fpe, 18);
+assert.equal(parsedStats.de, 0.4);
+assert.equal(parsedStats.epsBeat, null);
+const fin = "revenue:[120,100,90,80,90]";
+const second = t.buildSecondSource(snippet, fin);
+assert.equal(second.epsBeat, null);
+assert.ok(Math.abs(second.qoq - 0.2) < 1e-9);
+assert.ok(Math.abs(second.yoy - (120 - 90) / 90) < 1e-9);
+assert.equal(t.applySecondSource("pass", "loose", second, rules), "unconfirmed");
+assert.equal(t.applySecondSource("pass", "loose", null, rules), "unconfirmed");
+assert.equal(t.applySecondSource("fail", "loose", null, rules), "fail");
+assert.equal(t.applySecondSource("missing", "loose", null, rules), "missing");
+const fullSecond = Object.assign({}, second, { epsBeat: 0.2 });
+assert.equal(t.applySecondSource("pass", "loose", fullSecond, rules), "pass");
+const disagree = Object.assign({}, fullSecond, { pe: 80 });
+assert.equal(t.applySecondSource("pass", "loose", disagree, rules), "unconfirmed");
+assert.equal(t.stockAnalysisUrls("GC=F"), null);
+assert.match(t.stockAnalysisUrls("AAPL").stats, /stockanalysis\.com\/stocks\/aapl\/statistics\/__data\.json$/);
+assert.match(t.stockAnalysisUrls("BHP.AX").stats, /stockanalysis\.com\/quote\/asx\/bhp\/statistics\/__data\.json$/);
+assert.deepEqual(t.sleeveSymbols("ETFs"), ["NDQ.AX", "AINF.AX", "IVV.AX", "CURE.AX"]);
+assert.deepEqual(t.sleeveSymbols("Commodities"), ["GC=F", "CL=F", "HG=F", "SI=F"]);
+assert.equal(t.usesStockFundamentals("Stocks"), true);
+assert.equal(t.usesStockFundamentals("ETFs"), false);
+assert.equal(t.usesStockFundamentals("Commodities"), false);
+assert.equal(t.isSleeveSymbol("NDQ.AX"), true);
+assert.equal(t.isSleeveSymbol("AAPL"), false);
+assert.equal(t.isMaterialHeadline("Fed signals a rate hike"), true);
+assert.equal(t.isMaterialHeadline("RBA holds the cash rate"), true);
+assert.equal(t.isMaterialHeadline("Treasury yields jump"), true);
+assert.equal(t.isMaterialHeadline("Traders price a rate cut"), true);
+assert.equal(t.isMaterialHeadline("Markets drop on the AI trade"), true);
+assert.equal(t.isMaterialHeadline("AI capex lifts the sector"), true);
+assert.equal(t.isMaterialHeadline("A chip wave hits semiconductor stocks"), true);
+assert.equal(t.isMaterialHeadline("Oil prices slip"), true);
+assert.equal(t.isMaterialHeadline("Apple unveils an AI feature for iPhone users"), false);
+assert.equal(t.isMaterialHeadline("Chief said the plan stands"), false);
+assert.equal(t.isMaterialHeadline("Apple beats earnings on AI features"), true);
+const sleeveFn = board.slice(board.indexOf("function drawSleeve"), board.indexOf("function drawStocks"));
+assert.doesNotMatch(sleeveFn, /fiveChecks|tightChecks|loadQuote|trailingPE/);
+assert.match(sleeveFn, /weekPlus/);
+assert.match(sleeveFn, /confidenceFromChecks\(null/);
+assert.match(board, /confirmFundamentals/);
+assert.match(board, /stockanalysis\.com|stockAnalysisUrls/);
+assert.match(board, /fundamentalLabel/);
+assert.match(board, /sleeveSymbols/);
+assert.doesNotMatch(board, /textContent = "Buy"|Buy shares|>Buy</);
 
 console.log("ok — stocks scan tests passed");
