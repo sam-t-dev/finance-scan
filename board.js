@@ -56,7 +56,7 @@ async function loadNews(sym) {
   }
 }
 
-const state = { running: false, abort: false, passes: [], page: 0, sortKey: "confidence", sortDir: "down" };
+const state = { running: false, abort: false, passes: [], page: 0, sortKey: "confidence", sortDir: "down", scanSavedAt: null };
 
 function esc(s) {
   return String(s == null ? "" : s).replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -236,6 +236,7 @@ async function runScan(ui) {
   state.abort = false;
   state.passes = [];
   state.page = 0;
+  state.scanSavedAt = Date.now();
   ui.btn.disabled = true;
   ui.spin.style.display = "inline-block";
   ui._lastEta = Date.now();
@@ -324,24 +325,35 @@ async function runScan(ui) {
   ui.eta.textContent = "Done. Loose scan " + state.passes.length + " of " + universe.length + ". Technical scan finished.";
   ui.btn.disabled = false;
   state.running = false;
-  saveScan();
+  if (state.passes.length) saveScan();
+  else {
+    state.scanSavedAt = null;
+    try { localStorage.removeItem(SCAN_STORE); } catch (e) {}
+  }
 }
 
 function saveScan() {
   try {
+    if (!state.passes.length || state.scanSavedAt == null) return;
     const payload = scanPayload(state.passes, state.page, state.sortKey, state.sortDir);
-    sessionStorage.setItem(SCAN_STORE, JSON.stringify(payload));
+    payload.savedAt = state.scanSavedAt;
+    localStorage.setItem(SCAN_STORE, JSON.stringify(payload));
   } catch (e) {}
 }
 
 function restoreScan() {
   try {
-    const data = JSON.parse(sessionStorage.getItem(SCAN_STORE) || "null");
-    if (!data || !Array.isArray(data.passes) || !data.passes.length) return false;
+    const raw = localStorage.getItem(SCAN_STORE);
+    const data = JSON.parse(raw || "null");
+    if (!data || !Array.isArray(data.passes) || !data.passes.length || !scanSavedFresh(data.savedAt, Date.now())) {
+      if (raw) localStorage.removeItem(SCAN_STORE);
+      return false;
+    }
     state.passes = data.passes;
     state.page = data.page || 0;
     state.sortKey = data.sortKey || "confidence";
     state.sortDir = data.sortDir || "down";
+    state.scanSavedAt = Number(data.savedAt);
     return true;
   } catch (e) { return false; }
 }
@@ -506,7 +518,7 @@ function drawStocks() {
   buildHead(list);
   if (restoreScan()) {
     paintList(list, pageLabelEl);
-    eta.textContent = "Saved scan restored. " + state.passes.length + " names. Press Scan to run it again.";
+    eta.textContent = savedScanLine(state.scanSavedAt, Date.now());
   }
   btn.onclick = () => runScan({ btn, spin, eta, list, pageLabel: pageLabelEl });
 }

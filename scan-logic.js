@@ -470,6 +470,26 @@ function explainPack(closes, rules) {
 }
 
 const SCAN_STORE = "scan-stocks-v1";
+const SCAN_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
+function scanSavedFresh(savedAt, now) {
+  if (savedAt == null || now == null) return false;
+  const t = Number(savedAt);
+  const n = Number(now);
+  if (!Number.isFinite(t) || !Number.isFinite(n)) return false;
+  const age = n - t;
+  return age >= 0 && age < SCAN_MAX_AGE_MS;
+}
+
+function savedScanLine(savedAt, now) {
+  const t = Number(savedAt);
+  const n = Number(now);
+  const age = Number.isFinite(t) && Number.isFinite(n) ? Math.max(0, n - t) : 0;
+  const hours = Math.floor(age / 3600000);
+  if (hours < 1) return "Saved scan, less than 1 hour old";
+  if (hours === 1) return "Saved scan, 1 hour old";
+  return "Saved scan, " + hours + " hours old";
+}
 
 function sumLastVolumes(volumes, days) {
   const nums = (volumes || []).filter((v) => v != null && Number.isFinite(Number(v))).map(Number);
