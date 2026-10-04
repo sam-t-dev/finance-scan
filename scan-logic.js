@@ -1,6 +1,6 @@
 const PAGE_SIZE = 100;
 
-const CONFIDENCE_BLURB = "Percent of 6 tight and 6 technical checks. Halved if an event is inside 5 days or a material headline from the last 5 days (earnings, oil, guidance, lawsuit, downgrade). A beat in the last 5 days adds 10; a miss subtracts 10.";
+const CONFIDENCE_BLURB = "Percent of 6 tight and 6 technical checks. Halved if an event is inside 5 days or a material headline from the last 5 days (earnings, oil, interest rates, an AI or sector-wide move, guidance, lawsuit, downgrade). A beat in the last 5 days adds 10; a miss subtracts 10.";
 
 const DEFAULT_RULES = {
   name: "default",
@@ -314,8 +314,37 @@ function sizeFromScore(score, event, news) {
   return size;
 }
 
+function isRateHeadline(title) {
+  const s = String(title || "");
+  if (/\b(federal reserve|fomc|rba)\b/i.test(s)) return true;
+  if (/\b(yields?|interest rates?)\b/i.test(s)) return true;
+  if (/\brate\s+(cut|hike|cuts|hikes)\b/i.test(s)) return true;
+  if (/\b(cut|hike|cuts|hikes)\s+(interest\s+)?rates?\b/i.test(s)) return true;
+  if (/\b(fed|federal reserve)\b/i.test(s) && /\b(rate|rates|hike|cut|yield|policy)\b/i.test(s)) return true;
+  if (/\bthe fed\b/i.test(s)) return true;
+  return false;
+}
+
+function isAiSectorHeadline(title) {
+  const s = String(title || "");
+  if (/\bai\s+capex\b/i.test(s)) return true;
+  if (/\bchip\s+wave\b/i.test(s)) return true;
+  if (/\bai\s+trade\b/i.test(s)) return true;
+  const hasAi = /\bai\b/i.test(s);
+  const sector = /\b(sector|sectors|markets?|stocks|rally|sell-?off|chipmakers|semiconductors)\b/i.test(s);
+  if (!(hasAi && sector)) return false;
+  const companyStory = /\b(earnings|results|revenue|profit|beats|misses|unveils|launches|posts|reports)\b/i.test(s);
+  const marketMove = /\b(stocks|markets|sector|chipmakers|semiconductors)\b/i.test(s) && /\b(rally|sell-?off|slide|jump|fall|rise|lift)\b/i.test(s);
+  if (companyStory && !marketMove) return false;
+  return true;
+}
+
 function isMaterialHeadline(title) {
-  return /\b(earnings|oil|crude|guidance|lawsuit|lawsuits|downgrade|downgraded)\b/i.test(String(title || ""));
+  const s = String(title || "");
+  if (/\b(earnings|oil|crude|guidance|lawsuit|lawsuits|downgrade|downgraded)\b/i.test(s)) return true;
+  if (isRateHeadline(s)) return true;
+  if (isAiSectorHeadline(s)) return true;
+  return false;
 }
 
 function newsAgeText(days) {
@@ -564,6 +593,8 @@ function scanPayload(passes, page, sortKey, sortDir) {
       name: r.name,
       loosePass: !!r.loosePass,
       tightPass: !!r.tightPass,
+      looseState: r.looseState || null,
+      tightState: r.tightState || null,
       baby: r.baby || "",
       confidence: r.confidence == null ? null : r.confidence,
       size: r.size || null,
@@ -615,4 +646,166 @@ function formatDayMove(chg, pct) {
 
 function yahooQuoteUrl(symbol) {
   return "https://finance.yahoo.com/quote/" + encodeURIComponent(symbol);
+}
+
+function epsBeatRatio(row) {
+  const eh = row && row.earningsHistory && row.earningsHistory.history;
+  if (!Array.isArray(eh) || !eh.length) return null;
+  const last = eh[eh.length - 1];
+  const a = num(last.epsActual), e = num(last.epsEstimate);
+  if (a == null || !e) return null;
+  return (a - e) / Math.abs(e);
+}
+
+function looseInputsMissing(row, closes) {
+  const pe = num(row && row.summaryDetail && row.summaryDetail.trailingPE);
+  const peg = num(row && row.defaultKeyStatistics && row.defaultKeyStatistics.pegRatio);
+  const eps = epsBeatRatio(row);
+  const deRaw = num(row && row.financialData && row.financialData.debtToEquity);
+  const yoy = num(row && row.financialData && row.financialData.revenueGrowth);
+  const ma20 = sma(closes || [], 20), ma50 = sma(closes || [], 50), s20 = slope(closes || [], 20, 5);
+  return pe == null || peg == null || eps == null || deRaw == null || yoy == null || ma20 == null || ma50 == null || s20 == null;
+}
+
+function tightInputsMissing(row, closes, rules) {
+  const t = rules.tight;
+  const pe = num(row && row.summaryDetail && row.summaryDetail.trailingPE);
+  const fpe = num((row && row.summaryDetail && row.summaryDetail.forwardPE) || (row && row.defaultKeyStatistics && row.defaultKeyStatistics.forwardPE));
+  const deRaw = num(row && row.financialData && row.financialData.debtToEquity);
+  const qoq = qoqRevenue(row || {});
+  const r = rsi(closes || [], 14);
+  const needEps = t.epsBeat !== "no";
+  const eps = epsBeatRatio(row);
+  return pe == null || fpe == null || deRaw == null || qoq == null || r == null || (needEps && eps == null);
+}
+
+function fundamentalCell(kind, row, closes, rules) {
+  if (kind === "tight") {
+    if (tightInputsMissing(row, closes, rules)) return "missing";
+    return tightChecks(row, closes, rules).every(Boolean) ? "pass" : "fail";
+  }
+  if (looseInputsMissing(row, closes)) return "missing";
+  return fiveChecks(row, closes, rules).every(Boolean) ? "pass" : "fail";
+}
+
+function fundamentalLabel(state) {
+  if (state === "pass") return "pass";
+  if (state === "fail") return "fail";
+  return "\u2014";
+}
+
+function parseStatNumber(v) {
+  if (v == null) return null;
+  const raw = String(v).trim();
+  const pct = /%$/.test(raw);
+  const s = raw.replace(/[$,]/g, "").replace(/%/g, "").trim();
+  if (!s || /^n\/?a$/i.test(s) || s === "-" || s === "\u2014") return null;
+  let n = Number(s);
+  if (!Number.isFinite(n)) return null;
+  if (pct) n = n / 100;
+  return n;
+}
+
+function grabQuotedStat(text, id) {
+  const src = String(text || "");
+  const re = new RegExp('"' + id + '"\\s*,\\s*"[^"]{0,80}"\\s*,\\s*"([^"]+)"');
+  const m = src.match(re);
+  if (m) return parseStatNumber(m[1]);
+  const re2 = new RegExp('"' + id + '"\\s*:\\s*(-?[0-9]+(?:\\.[0-9]+)?)');
+  const m2 = src.match(re2);
+  if (m2) return parseStatNumber(m2[1]);
+  return null;
+}
+
+function parseStockAnalysisStats(text) {
+  return {
+    pe: grabQuotedStat(text, "pe"),
+    peg: grabQuotedStat(text, "pegRatio"),
+    fpe: grabQuotedStat(text, "peForward"),
+    de: grabQuotedStat(text, "debtEquity"),
+    epsBeat: grabQuotedStat(text, "epsSurprise") != null ? grabQuotedStat(text, "epsSurprise") : grabQuotedStat(text, "epsBeat")
+  };
+}
+
+function revenueGrowthFromSeries(revenues) {
+  const nums = (revenues || []).map(Number).filter((n) => Number.isFinite(n));
+  if (nums.length < 2 || !nums[1]) return { yoy: null, qoq: null };
+  const qoq = (nums[0] - nums[1]) / Math.abs(nums[1]);
+  const yoy = nums.length >= 5 && nums[4] ? (nums[0] - nums[4]) / Math.abs(nums[4]) : null;
+  return { yoy, qoq };
+}
+
+function revenueGrowthFromText(text) {
+  const m = String(text || "").match(/revenue\s*:\s*\[([0-9,\s.eE+-]+)\]/);
+  if (!m) return { yoy: null, qoq: null };
+  const nums = m[1].split(",").map((part) => Number(part.trim())).filter((n) => Number.isFinite(n));
+  return revenueGrowthFromSeries(nums);
+}
+
+function buildSecondSource(statsText, finText) {
+  if (!statsText && !finText) return null;
+  const stats = parseStockAnalysisStats(statsText || "");
+  const growth = revenueGrowthFromText(finText || "");
+  const out = {
+    pe: stats.pe,
+    peg: stats.peg,
+    fpe: stats.fpe,
+    de: stats.de,
+    epsBeat: stats.epsBeat,
+    yoy: growth.yoy,
+    qoq: growth.qoq
+  };
+  const any = ["pe", "peg", "fpe", "de", "epsBeat", "yoy", "qoq"].some((k) => out[k] != null);
+  return any ? out : null;
+}
+
+function secondSourceAgrees(kind, second, rules) {
+  if (!second) return false;
+  if (kind === "tight") {
+    const t = rules.tight;
+    const need = ["pe", "fpe", "de", "qoq"];
+    if (t.epsBeat !== "no") need.push("epsBeat");
+    for (let i = 0; i < need.length; i++) {
+      if (second[need[i]] == null || !Number.isFinite(Number(second[need[i]]))) return false;
+    }
+    const epsOk = t.epsBeat === "no" ? true : second.epsBeat > 0;
+    return second.pe < t.pe && second.fpe < t.fpe && second.de < t.de && second.qoq > t.qoq && epsOk;
+  }
+  const L = rules.loose;
+  const need = ["pe", "peg", "epsBeat", "de", "yoy"];
+  for (let i = 0; i < need.length; i++) {
+    if (second[need[i]] == null || !Number.isFinite(Number(second[need[i]]))) return false;
+  }
+  return second.pe < L.pe && second.peg < L.peg && second.epsBeat > L.epsBeat && second.de < L.de && second.yoy > L.yoy;
+}
+
+function applySecondSource(state, kind, second, rules) {
+  if (state !== "pass") return state;
+  return secondSourceAgrees(kind, second, rules) ? "pass" : "unconfirmed";
+}
+
+function stockAnalysisUrls(symbol) {
+  const sym = String(symbol || "").trim();
+  if (!sym || /[=^]/.test(sym)) return null;
+  const ax = /^([A-Za-z0-9-]+)\.AX$/i.exec(sym);
+  const path = ax ? "/quote/asx/" + ax[1].toLowerCase() : "/stocks/" + sym.toLowerCase().replace(/\./g, "-");
+  return {
+    stats: "https://stockanalysis.com" + path + "/statistics/__data.json",
+    financials: "https://stockanalysis.com" + path + "/financials/?p=quarterly"
+  };
+}
+
+function sleeveSymbols(cat) {
+  if (cat === "ETFs") return ["NDQ.AX", "AINF.AX", "IVV.AX", "CURE.AX"];
+  if (cat === "Commodities") return ["GC=F", "CL=F", "HG=F", "SI=F"];
+  return [];
+}
+
+function isSleeveSymbol(symbol) {
+  const s = String(symbol || "");
+  return sleeveSymbols("ETFs").indexOf(s) !== -1 || sleeveSymbols("Commodities").indexOf(s) !== -1;
+}
+
+function usesStockFundamentals(cat) {
+  return cat !== "ETFs" && cat !== "Commodities";
 }

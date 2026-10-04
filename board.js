@@ -40,7 +40,9 @@ async function loadChart(sym, range) {
     closes.push(raw[i]);
     times.push(stamps[i] == null ? null : Number(stamps[i]));
   }
-  return { closes, times, events: res.events || null };
+  const meta = res.meta || {};
+  const feedName = meta.longName || meta.shortName || "";
+  return { closes, times, events: res.events || null, name: String(feedName || ""), quote: quoteFromChart(chart) };
 }
 
 async function loadCloses(sym) {
@@ -84,10 +86,14 @@ function paintList(list, pageLabel) {
       if (e.target.closest && e.target.closest("a")) return;
       location.href = href;
     });
-    const baby = row.baby || "—";
+    const baby = row.baby || "\u2014";
     const babyClass = row.baby || "wait";
-    const tightClass = row.tightPass ? "pass" : "fail";
-    const tightText = row.tightPass ? "pass" : "fail";
+    const looseState = row.looseState || "unconfirmed";
+    const tightState = row.tightState || "unconfirmed";
+    const looseText = fundamentalLabel(looseState);
+    const tightText = fundamentalLabel(tightState);
+    const looseClass = looseState === "pass" || looseState === "fail" ? looseState : "wait";
+    const tightClass = tightState === "pass" || tightState === "fail" ? tightState : "wait";
     const conf = row.confidence == null ? "—" : String(row.confidence);
     const size = row.size || "—";
     let ev = "";
@@ -106,8 +112,8 @@ function paintList(list, pageLabel) {
     title.href = href;
     title.textContent = row.name;
     const looseEl = document.createElement("span");
-    looseEl.className = "res pass";
-    looseEl.textContent = "pass";
+    looseEl.className = "res " + looseClass;
+    looseEl.textContent = looseText;
     const tightEl = document.createElement("span");
     tightEl.className = "res " + tightClass;
     tightEl.textContent = tightText;
@@ -272,13 +278,22 @@ async function runScan(ui) {
       const closes = series.closes;
       const loose = fiveChecks(quote, closes, rules);
       if (loose.every(Boolean)) {
+        let looseState = fundamentalCell("loose", quote, closes, rules);
+        let tightState = fundamentalCell("tight", quote, closes, rules);
+        if (looseState === "pass" || tightState === "pass") {
+          const confirmed = await confirmFundamentals(item.symbol, looseState, tightState, rules);
+          looseState = confirmed.loose;
+          tightState = confirmed.tight;
+        }
         const tight = tightChecks(quote, closes, rules);
         state.passes.push({
           order: state.passes.length,
           symbol: item.symbol,
           name: item.name,
-          loosePass: true,
-          tightPass: tight.every(Boolean),
+          loosePass: looseState === "pass",
+          tightPass: tightState === "pass",
+          looseState,
+          tightState,
           tight,
           baby: "",
           confidence: null,
@@ -457,6 +472,10 @@ function drawHome() {
 }
 
 function drawCategory(cat) {
+  if (cat === "ETFs" || cat === "Commodities") {
+    drawSleeve(cat);
+    return;
+  }
   const board = document.getElementById("board");
   board.innerHTML = "";
   const card = document.createElement("section");
@@ -467,6 +486,118 @@ function drawCategory(cat) {
     card.innerHTML = "<div class='sec-head'><h2>" + esc(cat) + "</h2><a class='ghost link' href='index.html'>Back</a></div><p class='muted'>No scan yet. Names are not invented here.</p>";
   }
   board.appendChild(card);
+}
+
+async function readPublicText(url) {
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), 8000);
+  try {
+    const r = await fetch(url, { cache: "no-store", signal: ctrl.signal });
+    if (!r.ok) return null;
+    return await r.text();
+  } catch (e) {
+    return null;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function confirmFundamentals(symbol, looseState, tightState, rules) {
+  const out = { loose: looseState, tight: tightState };
+  if (looseState !== "pass" && tightState !== "pass") return out;
+  const urls = stockAnalysisUrls(symbol);
+  if (!urls) {
+    if (out.loose === "pass") out.loose = "unconfirmed";
+    if (out.tight === "pass") out.tight = "unconfirmed";
+    return out;
+  }
+  const statsText = await readPublicText(urls.stats);
+  const finText = await readPublicText(urls.financials);
+  const second = buildSecondSource(statsText, finText);
+  if (out.loose === "pass") out.loose = applySecondSource("pass", "loose", second, rules);
+  if (out.tight === "pass") out.tight = applySecondSource("pass", "tight", second, rules);
+  return out;
+}
+
+function drawSleeve(cat) {
+  const board = document.getElementById("board");
+  board.innerHTML = "";
+  const card = document.createElement("section");
+  card.className = "card";
+  const symbols = sleeveSymbols(cat);
+  const head = document.createElement("div");
+  head.className = "sec-head";
+  head.innerHTML = "<h2>" + esc(cat) + "</h2><a class='ghost link' href='index.html'>Back</a>";
+  const note = document.createElement("p");
+  note.className = "muted";
+  note.textContent = usesStockFundamentals(cat) ? "" : "Price and technical rules only. No stock P/E, PEG, EPS, debt, or revenue gate. Checking the chart feed.";
+  const list = document.createElement("div");
+  list.className = "wides";
+  card.append(head, note, list);
+  board.appendChild(card);
+  const rules = loadRules();
+  Promise.all(symbols.map(async (symbol) => {
+    try {
+      const series = await loadChart(symbol, "1y");
+      const q = series.quote;
+      if (!q || q.last == null || !Number.isFinite(Number(q.last))) return null;
+      const name = series.name || "";
+      let news = null;
+      try { news = parseNews(await loadNews(symbol)); } catch (e) {}
+      const pack = weekPlus(series.closes, rules);
+      const event = parseListedEvent({}, series.events);
+      const confidence = confidenceFromChecks(null, pack.checks, event, news);
+      const size = sizeFromScore(confidence, event, news);
+      return { symbol, name, last: q.last, chg: q.chg, pct: q.pct, baby: pack.signal, confidence, size, event, news };
+    } catch (e) {
+      return null;
+    }
+  })).then((rows) => {
+    const order = {};
+    symbols.forEach((symbol, i) => { order[symbol] = i; });
+    const live = rows.filter(Boolean).sort((a, b) => order[a.symbol] - order[b.symbol]);
+    list.innerHTML = "";
+    if (!live.length) {
+      note.textContent = "No symbol on this list resolved. Nothing is filled in.";
+      return;
+    }
+    note.textContent = "Price and technical rules only. No stock P/E, PEG, EPS, debt, or revenue gate.";
+    live.forEach((row) => {
+      const href = "index.html?symbol=" + encodeURIComponent(row.symbol) + "&name=" + encodeURIComponent(row.name || row.symbol);
+      const a = document.createElement("a");
+      a.className = "wide quote-card";
+      a.href = href;
+      const price = Number.isFinite(row.last) ? row.last.toFixed(2) : "\u2014";
+      const move = formatDayMove(row.chg, row.pct);
+      const tone = row.chg > 0 ? "up" : row.chg < 0 ? "down" : "flat";
+      const nameText = row.name || "\u2014";
+      const id = document.createElement("span");
+      id.className = "id";
+      const b = document.createElement("b");
+      b.textContent = row.symbol;
+      const co = document.createElement("span");
+      co.className = "co muted";
+      co.textContent = nameText;
+      id.append(b, co);
+      const quote = document.createElement("span");
+      quote.className = "quote";
+      const label = document.createElement("span");
+      label.className = "qlabel";
+      label.textContent = "Last price";
+      const qprice = document.createElement("span");
+      qprice.className = "qprice";
+      qprice.textContent = price;
+      const qchg = document.createElement("span");
+      qchg.className = move ? "qchg " + tone : "qchg muted";
+      qchg.textContent = move || "\u2014";
+      const meta = document.createElement("span");
+      meta.className = "co muted";
+      meta.textContent = (row.baby || "\u2014") + " \u00b7 " + (row.confidence == null ? "\u2014" : String(row.confidence)) + " \u00b7 " + (row.size || "\u2014");
+      quote.append(label, qprice, qchg, meta);
+      a.append(id, quote);
+      list.appendChild(a);
+    });
+  });
 }
 
 function drawStocks() {
@@ -678,28 +809,35 @@ async function drawSymbol(symbol, name) {
   board.appendChild(card);
   const facts = document.getElementById("facts");
   try {
+    const sleeve = isSleeveSymbol(symbol);
     let quote = {};
     let news = null;
-    try { quote = await loadQuote(symbol); } catch (e) {}
+    if (!sleeve) { try { quote = await loadQuote(symbol); } catch (e) {} }
     try { news = parseNews(await loadNews(symbol)); } catch (e) {}
     const series = await loadChart(symbol, "1y");
     const closes = series.closes;
     const rules = loadRules();
     const pack = explainPack(closes, rules);
     pack.times = series.times;
-    const haveFundamentals = !!(quote.summaryDetail || quote.financialData || quote.earningsHistory);
-    const loose = haveFundamentals ? fiveChecks(quote, closes, rules) : null;
+    const haveFundamentals = !sleeve && !!(quote.summaryDetail || quote.financialData || quote.earningsHistory || quote.defaultKeyStatistics);
+    let looseState = haveFundamentals ? fundamentalCell("loose", quote, closes, rules) : "missing";
+    let tightState = haveFundamentals ? fundamentalCell("tight", quote, closes, rules) : "missing";
+    if (!sleeve && (looseState === "pass" || tightState === "pass")) {
+      const confirmed = await confirmFundamentals(symbol, looseState, tightState, rules);
+      looseState = confirmed.loose;
+      tightState = confirmed.tight;
+    }
     const tight = haveFundamentals ? tightChecks(quote, closes, rules) : null;
     const event = parseListedEvent(quote, series.events);
-    const confidence = tight ? confidenceFromChecks(tight, pack.checks, event, news) : null;
+    const confidence = sleeve ? confidenceFromChecks(null, pack.checks, event, news) : (tight ? confidenceFromChecks(tight, pack.checks, event, news) : null);
     const size = confidence == null ? null : sizeFromScore(confidence, event, news);
     const price = pack.last;
     const priceEl = document.getElementById("lastPrice");
     priceEl.textContent = price.toFixed(2);
     document.getElementById("whyStatus").textContent = pack.signal.toUpperCase();
     document.getElementById("whyStatus").className = "res " + pack.signal;
-    summaryRow(facts, "Loose", loose ? (loose.every(Boolean) ? "pass" : "fail") : "\u2014", loose ? (loose.every(Boolean) ? "pass" : "fail") : "");
-    summaryRow(facts, "Tight", tight ? (tight.every(Boolean) ? "pass" : "fail") : "\u2014", tight ? (tight.every(Boolean) ? "pass" : "fail") : "");
+    summaryRow(facts, "Loose", fundamentalLabel(looseState), looseState === "pass" || looseState === "fail" ? looseState : "");
+    summaryRow(facts, "Tight", fundamentalLabel(tightState), tightState === "pass" || tightState === "fail" ? tightState : "");
     summaryRow(facts, "Technical analysis", pack.signal, pack.signal);
     summaryRow(facts, "Confidence", confidence == null ? "\u2014" : String(confidence));
     summaryRow(facts, "Size", size || "\u2014");
