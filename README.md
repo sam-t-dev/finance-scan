@@ -16,6 +16,6 @@ The home board is four boxes: Scanners, Stocks, ETFs, Commodities. Under them ar
 
 Each wide box shows the ticker and name, and the last price with today's change from that same chart feed. Green is up and red is down. Prices are left blank when the chart feed does not answer. The quote summary path is not used here, because the proxy returns 401 Invalid Crumb.
 
-A stocks scan stays in this browser tab so Back and a stock page do not clear it. Search is the text field only and lists matches after 3 characters. A stock page has a zoomable chart, the loose, tight, technical, confidence, size, event, and news lines, and a Yahoo Finance link. When a recent headline is the kind that caps size, one line says so from the headline alone.
+A stocks scan stays in this browser for 24 hours, with how old it is, so closing the tab does not clear it. Scan runs a fresh one. Search is the text field only and lists matches after 3 characters. A stock page has a zoomable chart, the loose, tight, technical, confidence, size, event, and news lines, and a Yahoo Finance link. When a recent headline is the kind that caps size, one line says so from the headline alone.
 
 Screen only. Not advice.
