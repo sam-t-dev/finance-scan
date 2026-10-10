@@ -344,8 +344,9 @@ async function runScan(ui) {
       const closes = series.closes;
       const loose = fiveChecks(quote, closes, rules);
       const passed = loose.filter(Boolean).length;
-      const looseState = passed === 5 ? "pass" : "fail";
-      {
+      if (passed < 4) { /* only 4/5 and 5/5 stay on the list */ }
+      else {
+        const looseState = passed === 5 ? "pass" : "fail";
         let tightState = fundamentalCell("tight", quote, closes, rules);
         const tight = tightChecks(quote, closes, rules);
         state.passes.push({
@@ -391,7 +392,8 @@ async function runScan(ui) {
     try {
       const pack = weekPlus(row.closes, rules);
       row.baby = pack.signal;
-      row.confidence = confidenceFromChecks(row.tight, pack.checks, row.event, row.news);
+      const allThree = row.loosePass && row.tightPass && pack.signal === "buy";
+      row.confidence = confidenceFromChecks(row.tight, pack.checks, row.event, row.news, allThree);
       row.size = sizeFromScore(row.confidence, row.event, row.news);
     } catch (e) {
       row.baby = "hold";
@@ -402,7 +404,7 @@ async function runScan(ui) {
     paintList(ui.list, ui.pageLabel);
   }
   ui.spin.style.display = "none";
-  ui.eta.textContent = "Done. Loose scan " + state.passes.length + " of " + universe.length + ". Technical scan finished.";
+  ui.eta.textContent = "Done. " + state.passes.length + " names at 4/5 or 5/5 of " + universe.length + ". Technical scan finished.";
   ui.btn.disabled = false;
   state.running = false;
   if (state.passes.length) saveScan();
