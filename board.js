@@ -90,10 +90,10 @@ function paintList(list, pageLabel) {
     const babyClass = row.baby || "wait";
     const looseState = row.looseState || "unconfirmed";
     const tightState = row.tightState || "unconfirmed";
-    const looseN = Array.isArray(row.loose) ? row.loose.filter(Boolean).length : (looseState === "pass" ? 5 : 0);
-    const looseText = Array.isArray(row.loose) ? (looseN + "/5") : fundamentalLabel(looseState);
+    const looseN = Array.isArray(row.loose) ? row.loose.filter(Boolean).length : (looseState === "pass" ? 5 : null);
+    const looseText = looseN != null ? (looseN + "/5") : (looseState === "pass" ? "pass" : fundamentalLabel(looseState));
     const tightText = fundamentalLabel(tightState);
-    const looseClass = Array.isArray(row.loose) ? (looseN === 5 ? "pass" : "fail") : (looseState === "pass" || looseState === "fail" ? looseState : "wait");
+    const looseClass = looseState === "pass" || (looseN === 5) ? "pass" : (looseState === "fail" || (looseN != null && looseN < 5) ? "fail" : "wait");
     const tightClass = tightState === "pass" || tightState === "fail" ? tightState : "wait";
     const conf = row.confidence == null ? "—" : String(row.confidence);
     const size = row.size || "—";
@@ -371,6 +371,10 @@ function restoreScan() {
       return false;
     }
     if (data.rulesKey && data.rulesKey !== rulesKey()) {
+      localStorage.removeItem(SCAN_STORE);
+      return "stale";
+    }
+    if (data.passes.some((row) => !Array.isArray(row.loose))) {
       localStorage.removeItem(SCAN_STORE);
       return "stale";
     }
