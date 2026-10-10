@@ -290,7 +290,7 @@ function materialNewsInside5(news) {
   return !!(news && news.material);
 }
 
-function confidenceFromChecks(tight, tech, event, news) {
+function confidenceFromChecks(tight, tech, event, news, allThree) {
   const checks = (tight || []).concat(tech || []);
   const total = checks.length || 1;
   let score = Math.round(100 * checks.filter(Boolean).length / total);
@@ -298,7 +298,9 @@ function confidenceFromChecks(tight, tech, event, news) {
   if (event && event.kind === "earnings" && event.days != null && event.days <= 0 && event.days >= -5 && event.beat != null) {
     score += event.beat ? 10 : -10;
   }
-  return Math.max(0, Math.min(100, score));
+  score = Math.max(0, Math.min(100, score));
+  if (allThree) return Math.max(91, score);
+  return Math.min(89, score);
 }
 
 function sizeFromScore(score, event, news) {
