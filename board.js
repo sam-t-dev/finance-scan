@@ -90,9 +90,10 @@ function paintList(list, pageLabel) {
     const babyClass = row.baby || "wait";
     const looseState = row.looseState || "unconfirmed";
     const tightState = row.tightState || "unconfirmed";
-    const looseText = fundamentalLabel(looseState);
+    const looseN = Array.isArray(row.loose) ? row.loose.filter(Boolean).length : (looseState === "pass" ? 5 : 0);
+    const looseText = Array.isArray(row.loose) ? (looseN + "/5") : fundamentalLabel(looseState);
     const tightText = fundamentalLabel(tightState);
-    const looseClass = looseState === "pass" || looseState === "fail" ? looseState : "wait";
+    const looseClass = Array.isArray(row.loose) ? (looseN === 5 ? "pass" : "fail") : (looseState === "pass" || looseState === "fail" ? looseState : "wait");
     const tightClass = tightState === "pass" || tightState === "fail" ? tightState : "wait";
     const conf = row.confidence == null ? "—" : String(row.confidence);
     const size = row.size || "—";
@@ -277,12 +278,11 @@ async function runScan(ui) {
       ]);
       const closes = series.closes;
       const loose = fiveChecks(quote, closes, rules);
-      if (loose.every(Boolean)) {
-        let looseState = fundamentalCell("loose", quote, closes, rules);
+      const looseState = loose.every(Boolean) ? "pass" : "fail";
+      if (looseState === "pass") {
         let tightState = fundamentalCell("tight", quote, closes, rules);
-        if (looseState === "pass" || tightState === "pass") {
-          const confirmed = await confirmFundamentals(item.symbol, looseState, tightState, rules);
-          looseState = confirmed.loose;
+        if (tightState === "pass") {
+          const confirmed = await confirmFundamentals(item.symbol, "pass", tightState, rules);
           tightState = confirmed.tight;
         }
         const tight = tightChecks(quote, closes, rules);
@@ -290,7 +290,8 @@ async function runScan(ui) {
           order: state.passes.length,
           symbol: item.symbol,
           name: item.name,
-          loosePass: looseState === "pass",
+          loose,
+          loosePass: true,
           tightPass: tightState === "pass",
           looseState,
           tightState,
@@ -849,7 +850,10 @@ async function drawSymbol(symbol, name) {
     priceEl.textContent = price.toFixed(2);
     document.getElementById("whyStatus").textContent = pack.signal.toUpperCase();
     document.getElementById("whyStatus").className = "res " + pack.signal;
-    summaryRow(facts, "Loose", fundamentalLabel(looseState), looseState === "pass" || looseState === "fail" ? looseState : "");
+    const looseChecks = haveFundamentals ? fiveChecks(quote, closes, rules) : null;
+    const looseLabels = ["P/E and PEG", "20MA above 50MA, rising", "EPS beat", "D/E", "YoY revenue"];
+    summaryRow(facts, "Loose", looseChecks ? (looseChecks.every(Boolean) ? "pass" : "fail") : "no data", looseChecks ? (looseChecks.every(Boolean) ? "pass" : "fail") : "");
+    if (looseChecks) looseChecks.forEach((ok, i) => summaryRow(facts, "  " + looseLabels[i], ok ? "pass" : "fail", ok ? "pass" : "fail"));
     summaryRow(facts, "Tight", fundamentalLabel(tightState), tightState === "pass" || tightState === "fail" ? tightState : "");
     summaryRow(facts, "Technical analysis", pack.signal, pack.signal);
     summaryRow(facts, "Confidence", confidence == null ? "\u2014" : String(confidence));
