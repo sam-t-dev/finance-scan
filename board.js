@@ -71,6 +71,63 @@ function sortedPasses() {
   return rows;
 }
 
+
+const SOURCE_CYCLE = ["yahoo", "stockanalysis", "cnbc", "nasdaq"];
+
+function sourceName(i) {
+  return SOURCE_CYCLE[i % SOURCE_CYCLE.length] || "yahoo";
+}
+
+function reloadBtn(row, kind, list, pageLabel) {
+  const b = document.createElement("button");
+  b.type = "button";
+  b.className = "reload";
+  b.textContent = "\u21bb";
+  b.title = "Reload " + kind + " from the next source";
+  b.addEventListener("click", (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    cycleSource(row, kind, list, pageLabel);
+  });
+  return b;
+}
+
+async function cycleSource(row, kind, list, pageLabel) {
+  const rules = loadRules();
+  row.srcIndex = ((row.srcIndex || 0) + 1) % SOURCE_CYCLE.length;
+  const src = sourceName(row.srcIndex);
+  row.srcLabel = src;
+  try {
+    if (src === "yahoo") {
+      const quote = await loadQuote(row.symbol);
+      const series = await loadChart(row.symbol, "1y");
+      row.loose = fiveChecks(quote, series.closes, rules);
+      row.tight = tightChecks(quote, series.closes, rules);
+    } else {
+      const data = await getJson(apiBase() + "/source?symbol=" + encodeURIComponent(row.symbol) + "&src=" + encodeURIComponent(src));
+      const second = src === "stockanalysis" ? buildSecondSource(data.stats, data.financials) : null;
+      if (second) {
+        const L = rules.loose;
+        row.loose = [
+          second.pe != null && second.peg != null && second.pe < L.pe && second.peg < L.peg,
+          row.loose && row.loose[1],
+          second.epsBeat != null && second.epsBeat > L.epsBeat,
+          second.de != null && second.de < L.de,
+          second.yoy != null && second.yoy > L.yoy
+        ];
+      }
+    }
+  } catch (e) {
+    row.srcLabel = src + " failed";
+  }
+  const loose = Array.isArray(row.loose) ? row.loose : [];
+  const known = loose.filter((v) => v != null).length;
+  const passed = loose.filter(Boolean).length;
+  row.looseState = known && passed === known && passed === 5 ? "pass" : "fail";
+  row.loosePass = passed === 5;
+  paintList(list, pageLabel);
+}
+
 function paintList(list, pageLabel) {
   const rows = sortedPasses();
   const win = pageWindow(rows.length, state.page, PAGE_SIZE);
@@ -115,9 +172,17 @@ function paintList(list, pageLabel) {
     const looseEl = document.createElement("span");
     looseEl.className = "res " + looseClass;
     looseEl.textContent = looseText;
+    if (row.srcLabel) {
+      const tag = document.createElement("small");
+      tag.className = "src";
+      tag.textContent = " " + row.srcLabel;
+      looseEl.appendChild(tag);
+    }
+    looseEl.appendChild(reloadBtn(row, "loose", list, pageLabel));
     const tightEl = document.createElement("span");
     tightEl.className = "res " + tightClass;
     tightEl.textContent = tightText;
+    tightEl.appendChild(reloadBtn(row, "tight", list, pageLabel));
     const babyEl = document.createElement("span");
     babyEl.className = "res " + babyClass;
     babyEl.textContent = baby;
@@ -278,20 +343,19 @@ async function runScan(ui) {
       ]);
       const closes = series.closes;
       const loose = fiveChecks(quote, closes, rules);
-      const looseState = loose.every(Boolean) ? "pass" : "fail";
-      if (looseState === "pass") {
+      const passed = loose.filter(Boolean).length;
+      const looseState = passed === 5 ? "pass" : "fail";
+      {
         let tightState = fundamentalCell("tight", quote, closes, rules);
-        if (tightState === "pass") {
-          const confirmed = await confirmFundamentals(item.symbol, "pass", tightState, rules);
-          tightState = confirmed.tight;
-        }
         const tight = tightChecks(quote, closes, rules);
         state.passes.push({
           order: state.passes.length,
           symbol: item.symbol,
           name: item.name,
           loose,
-          loosePass: true,
+          srcIndex: 0,
+          srcLabel: "yahoo",
+          loosePass: passed === 5,
           tightPass: tightState === "pass",
           looseState,
           tightState,
