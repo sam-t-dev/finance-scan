@@ -691,7 +691,6 @@ function fundamentalCell(kind, row, closes, rules) {
 function fundamentalLabel(state) {
   if (state === "pass") return "pass";
   if (state === "fail") return "fail";
-  if (state === "unconfirmed") return "pass*";
   if (state === "missing") return "no data";
   return "\u2014";
 }
