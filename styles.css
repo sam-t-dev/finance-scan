@@ -95,3 +95,7 @@ label span { display:block; color:var(--muted); font-size:12px; margin-bottom:4p
 #chartBox { touch-action:none; cursor:grab; }
 @media (max-width:720px) { .wides.cols { grid-template-columns:1fr; } .wide.quote-card .co { white-space:normal; } }
 @media (max-width:560px) { .cats.home { grid-template-columns:1fr 1fr; } }
+
+.reload { background:transparent; color:var(--muted); border:1px solid var(--line); border-radius:6px; padding:1px 6px; margin-left:6px; font-size:12px; cursor:pointer; }
+.reload:hover { color:var(--text); }
+.src { color:var(--muted); font-weight:400; letter-spacing:0; text-transform:none; margin-left:4px; }
