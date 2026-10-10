@@ -515,14 +515,12 @@ async function confirmFundamentals(symbol, looseState, tightState, rules) {
   const out = { loose: looseState, tight: tightState };
   if (looseState !== "pass" && tightState !== "pass") return out;
   const urls = stockAnalysisUrls(symbol);
-  if (!urls) {
-    if (out.loose === "pass") out.loose = "unconfirmed";
-    if (out.tight === "pass") out.tight = "unconfirmed";
-    return out;
-  }
+  if (!urls) return out;
   const statsText = await readPublicText(urls.stats);
   const finText = await readPublicText(urls.financials);
   const second = buildSecondSource(statsText, finText);
+  // Second source is optional. If it cannot load (CORS, timeout), keep the Yahoo result.
+  if (!second) return out;
   if (out.loose === "pass") out.loose = applySecondSource("pass", "loose", second, rules);
   if (out.tight === "pass") out.tight = applySecondSource("pass", "tight", second, rules);
   return out;
