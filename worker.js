@@ -86,6 +86,27 @@ async function yahooNews(symbol) {
   return fetch(target, { headers: { "user-agent": ua, accept: "application/json" } });
 }
 
+
+async function sourceProxy(src, symbol) {
+  const ua = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36";
+  const s = String(symbol || "").trim();
+  if (src === "stockanalysis") {
+    const path = "/stocks/" + s.toLowerCase().replace(/\./g, "-");
+    const stats = await fetch("https://stockanalysis.com" + path + "/statistics/__data.json", { headers: { "user-agent": ua, accept: "application/json" } });
+    const fin = await fetch("https://stockanalysis.com" + path + "/financials/?p=quarterly", { headers: { "user-agent": ua, accept: "text/html" } });
+    return { stats: await stats.text(), financials: await fin.text() };
+  }
+  if (src === "cnbc") {
+    const up = await fetch("https://quote.cnbc.com/quote-html-webservice/restQuote/symbolType/symbol?symbols=" + encodeURIComponent(s) + "&requestMethod=itv&noform=1&partnerId=2&fund=1&exthrs=1&output=json&events=1", { headers: { "user-agent": ua, accept: "application/json" } });
+    return { cnbc: await up.text() };
+  }
+  if (src === "nasdaq") {
+    const up = await fetch("https://api.nasdaq.com/api/quote/" + encodeURIComponent(s) + "/summary?assetclass=stocks", { headers: { "user-agent": ua, accept: "application/json" } });
+    return { nasdaq: await up.text() };
+  }
+  return null;
+}
+
 export default {
   async fetch(req) {
     if (req.method === "OPTIONS") return new Response(null, { headers: cors });
@@ -107,6 +128,12 @@ export default {
       const symbol = url.searchParams.get("symbol") || url.searchParams.get("q") || "AAPL";
       const up = await yahooNews(symbol);
       return new Response(await up.text(), { status: up.status, headers: { ...cors, "content-type": "application/json", "cache-control": "no-store" } });
+    }
+    if (url.pathname.startsWith("/source")) {
+      const symbol = url.searchParams.get("symbol") || "AAPL";
+      const src = url.searchParams.get("src") || "stockanalysis";
+      const data = await sourceProxy(src, symbol);
+      return new Response(JSON.stringify(data || {}), { headers: { ...cors, "content-type": "application/json", "cache-control": "no-store" } });
     }
     const name = ROUTES[url.pathname] || "index.html";
     const file = FILES[name];
