@@ -347,11 +347,16 @@ async function runScan(ui) {
   }
 }
 
+function rulesKey() {
+  try { return JSON.stringify(loadRules().loose); } catch (e) { return ""; }
+}
+
 function saveScan() {
   try {
     if (!state.passes.length || state.scanSavedAt == null) return;
     const payload = scanPayload(state.passes, state.page, state.sortKey, state.sortDir);
     payload.savedAt = state.scanSavedAt;
+    payload.rulesKey = rulesKey();
     localStorage.setItem(SCAN_STORE, JSON.stringify(payload));
   } catch (e) {}
 }
@@ -363,6 +368,10 @@ function restoreScan() {
     if (!data || !Array.isArray(data.passes) || !data.passes.length || !scanSavedFresh(data.savedAt, Date.now())) {
       if (raw) localStorage.removeItem(SCAN_STORE);
       return false;
+    }
+    if (data.rulesKey && data.rulesKey !== rulesKey()) {
+      localStorage.removeItem(SCAN_STORE);
+      return "stale";
     }
     state.passes = data.passes;
     state.page = data.page || 0;
@@ -641,15 +650,21 @@ function drawStocks() {
   const spin = document.createElement("span");
   spin.className = "spin"; spin.style.display = "none";
   const eta = document.createElement("span");
-  eta.className = "muted"; eta.textContent = "Top 1,000 by volume. Loose 5/5 first, then technical analysis.";
+  eta.className = "muted";
+  const r = loadRules().loose;
+  const ruleLine = "Loose: P/E < " + r.pe + ", PEG < " + r.peg + ", EPS beat > " + Math.round(r.epsBeat * 100) + "%, D/E < " + r.de + ", YoY > " + Math.round(r.yoy * 100) + "%.";
+  eta.textContent = "Top 1,000 by volume. " + ruleLine;
   status.append(spin, eta);
   card.append(head, bar, status, list);
   bar.appendChild(btn);
   board.appendChild(card);
   buildHead(list);
-  if (restoreScan()) {
+  const restored = restoreScan();
+  if (restored === true) {
     paintList(list, pageLabelEl);
-    eta.textContent = savedScanLine(state.scanSavedAt, Date.now());
+    eta.textContent = savedScanLine(state.scanSavedAt, Date.now()) + ". " + ruleLine;
+  } else if (restored === "stale") {
+    eta.textContent = "Loose rules changed. Previous scan dropped. Press Scan. " + ruleLine;
   }
   btn.onclick = () => runScan({ btn, spin, eta, list, pageLabel: pageLabelEl });
 }
