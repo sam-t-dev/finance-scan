@@ -129,6 +129,10 @@ async function cycleSource(row, kind, list, pageLabel) {
 }
 
 function paintList(list, pageLabel) {
+  state.passes = state.passes.filter((row) => {
+    const n = Array.isArray(row.loose) ? row.loose.filter(Boolean).length : (row.loosePass ? 5 : 0);
+    return n >= 4;
+  });
   const rows = sortedPasses();
   const win = pageWindow(rows.length, state.page, PAGE_SIZE);
   state.page = win.page;
@@ -441,6 +445,10 @@ function restoreScan() {
       return "stale";
     }
     if (data.passes.some((row) => !Array.isArray(row.loose))) {
+      localStorage.removeItem(SCAN_STORE);
+      return "stale";
+    }
+    if (data.passes.some((row) => row.loose.filter(Boolean).length < 4)) {
       localStorage.removeItem(SCAN_STORE);
       return "stale";
     }
