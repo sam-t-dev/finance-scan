@@ -1014,3 +1014,40 @@ if (boot.get("symbol")) drawSymbol(boot.get("symbol"), boot.get("name"));
 else if (boot.get("cat") === "Stocks") drawStocks();
 else if (boot.get("cat") === "Scanners" || boot.get("cat") === "ETFs" || boot.get("cat") === "Commodities") drawCategory(boot.get("cat"));
 else drawHome();
+
+// Diagnostic panel
+(function() {
+  const btn = document.getElementById("diagBtn");
+  const panel = document.getElementById("diag");
+  const logEl = document.getElementById("diagLog");
+  const close = document.getElementById("diagClose");
+  if (!btn || !panel || !logEl) return;
+  const lines = [];
+  function log(msg) {
+    const t = new Date().toISOString().slice(11, 19);
+    lines.push(t + " " + msg);
+    if (lines.length > 40) lines.shift();
+    logEl.textContent = lines.join("\n");
+    console.log("[diag]", msg);
+  }
+  window.diagLog = log;
+  btn.onclick = () => { panel.style.display = panel.style.display === "none" ? "block" : "none"; };
+  if (close) close.onclick = () => { panel.style.display = "none"; };
+  log("page " + location.href);
+  log("base " + document.baseURI);
+  const origGet = window.getJson;
+  if (typeof getJson === "function") {
+    window.getJson = async function(url) {
+      log("fetch " + url);
+      try {
+        const r = await origGet(url);
+        log("ok " + url + " " + (Array.isArray(r) ? r.length + " items" : typeof r));
+        return r;
+      } catch (e) {
+        log("fail " + url + " " + (e && e.message || e));
+        throw e;
+      }
+    };
+  }
+  log("diag ready");
+})();
