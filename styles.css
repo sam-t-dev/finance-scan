@@ -99,3 +99,10 @@ label span { display:block; color:var(--muted); font-size:12px; margin-bottom:4p
 .reload { background:transparent; color:var(--muted); border:1px solid var(--line); border-radius:6px; padding:1px 6px; margin-left:6px; font-size:12px; cursor:pointer; }
 .reload:hover { color:var(--text); }
 .src { color:var(--muted); font-weight:400; letter-spacing:0; text-transform:none; margin-left:4px; }
+
+.ruleblock { font-size: 11px; line-height: 1.35; text-align: left; text-transform: none; letter-spacing: 0; font-weight: 400; }
+.ruletitle { font-weight: 700; font-size: 10px; letter-spacing: .06em; margin-bottom: 2px; color: var(--muted); }
+.ruleline { white-space: nowrap; }
+.ruleline.pass { color: var(--pass); }
+.ruleline.fail { color: var(--fail); }
+.res { text-align: left; }

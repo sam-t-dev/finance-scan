@@ -157,6 +157,25 @@ function metricTitle(m) {
   ].join("\n");
 }
 
+
+function ruleBlock(title, rows) {
+  const wrap = document.createElement("div");
+  wrap.className = "ruleblock";
+  const h = document.createElement("div");
+  h.className = "ruletitle";
+  h.textContent = title;
+  wrap.appendChild(h);
+  rows.forEach(([label, actual, target, ok]) => {
+    const line = document.createElement("div");
+    line.className = "ruleline" + (ok === false ? " fail" : ok === true ? " pass" : "");
+    const a = actual == null ? "missing" : actual;
+    const t = target == null ? "" : " / " + target;
+    line.textContent = label + ": " + a + t;
+    wrap.appendChild(line);
+  });
+  return wrap;
+}
+
 function paintList(list, pageLabel) {
   state.passes = state.passes.filter((row) => {
     const n = Array.isArray(row.loose) ? row.loose.filter(Boolean).length : (row.loosePass ? 5 : 0);
@@ -202,10 +221,21 @@ function paintList(list, pageLabel) {
     title.className = "title";
     title.href = href;
     title.textContent = row.name;
-    const looseEl = document.createElement("span");
+    const looseEl = document.createElement("div");
     looseEl.className = "res " + looseClass;
-    looseEl.textContent = looseText;
-    if (row.metrics) looseEl.title = metricTitle(row.metrics);
+    if (row.metrics && row.metrics.loose) {
+      const L = row.metrics.loose;
+      const rules = loadRules().loose;
+      looseEl.appendChild(ruleBlock("LOOSE", [
+        ["Trailing P/E under", L.pe == null ? null : L.pe.toFixed(1), rules.pe, L.peOk],
+        ["PEG under", L.peg == null ? null : L.peg.toFixed(2), rules.peg, L.pegOk],
+        ["EPS beat over %", L.eps == null ? null : (L.eps * 100).toFixed(1) + "%", (rules.epsBeat * 100).toFixed(0) + "%", L.epsOk],
+        ["D/E under", L.de == null ? null : L.de.toFixed(2), rules.de, L.deOk],
+        ["YoY revenue over %", L.yoy == null ? null : (L.yoy * 100).toFixed(1) + "%", (rules.yoy * 100).toFixed(0) + "%", L.yoyOk]
+      ]));
+    } else {
+      looseEl.textContent = looseText;
+    }
     if (row.srcLabel) {
       const tag = document.createElement("small");
       tag.className = "src";
@@ -213,22 +243,40 @@ function paintList(list, pageLabel) {
       looseEl.appendChild(tag);
     }
     looseEl.appendChild(reloadBtn(row, "loose", list, pageLabel));
-    const tightEl = document.createElement("span");
+    const tightEl = document.createElement("div");
     tightEl.className = "res " + tightClass;
-    tightEl.textContent = tightText;
-    if (row.metrics) tightEl.title = metricTitle(row.metrics);
-    tightEl.appendChild(reloadBtn(row, "tight", list, pageLabel));
-    const babyEl = document.createElement("span");
-    babyEl.className = "res " + babyClass;
-    let babyText = baby;
-    if (row.metrics && row.metrics.tech) {
-      const p = row.metrics.tech;
-      const tgt = p.swingHigh == null ? "" : " tgt " + p.swingHigh.toFixed(2);
-      const rr = p.rr == null ? "" : " rr " + p.rr.toFixed(1);
-      babyText += tgt + rr;
-      babyEl.title = "Price " + (p.last==null?"—":p.last.toFixed(2)) + " | 50 " + (p.trend==null?"—":p.trend.toFixed(2)) + " | 200 " + (p.higher==null?"—":p.higher.toFixed(2)) + " | RSI " + (p.r==null?"—":p.r.toFixed(0)) + " | dist " + (p.dist==null?"—":p.dist.toFixed(1)+"%") + " | target " + (p.swingHigh==null?"—":p.swingHigh.toFixed(2)) + " | RR " + (p.rr==null?"—":p.rr.toFixed(2));
+    if (row.metrics && row.metrics.tight) {
+      const T = row.metrics.tight;
+      const rules = loadRules().tight;
+      tightEl.appendChild(ruleBlock("TIGHT", [
+        ["Trailing P/E under", T.pe == null ? null : T.pe.toFixed(1), rules.pe, T.peOk],
+        ["Forward P/E under", T.fpe == null ? null : T.fpe.toFixed(1), rules.fpe, T.fpeOk],
+        ["RSI from–to", T.rsi == null ? null : T.rsi.toFixed(0), rules.rsiLow + "–" + rules.rsiHigh, T.rsiOk],
+        ["D/E under", T.de == null ? null : T.de.toFixed(2), rules.de, T.deOk],
+        ["EPS beat", T.eps == null ? null : (T.eps > 0 ? "beat" : "miss"), rules.epsBeat, T.epsOk],
+        ["QoQ revenue over %", T.qoq == null ? null : (T.qoq * 100).toFixed(1) + "%", (rules.qoq * 100).toFixed(0) + "%", T.qoqOk]
+      ]));
+    } else {
+      tightEl.textContent = tightText;
     }
-    babyEl.textContent = babyText;
+    tightEl.appendChild(reloadBtn(row, "tight", list, pageLabel));
+    const babyEl = document.createElement("div");
+    babyEl.className = "res " + babyClass;
+    if (row.metrics && row.metrics.tech) {
+      const P = row.metrics.tech;
+      const B = loadRules().babypips;
+      babyEl.appendChild(ruleBlock("TECH " + (P.signal || "").toUpperCase(), [
+        ["Price", P.last == null ? null : P.last.toFixed(2), null, null],
+        ["50-day", P.trend == null ? null : P.trend.toFixed(2), null, P.last != null && P.trend != null && P.last > P.trend],
+        ["200-day", P.higher == null ? null : P.higher.toFixed(2), null, P.last != null && P.higher != null && P.last > P.higher],
+        ["RSI", P.r == null ? null : P.r.toFixed(0), B.rsiMin + "–" + B.rsiChase, P.r != null && P.r >= B.rsiMin && P.r <= B.rsiChase],
+        ["Dist above 50 %", P.dist == null ? null : P.dist.toFixed(1) + "%", "0–" + B.pullbackPct + "%", P.dist != null && P.dist >= 0 && P.dist <= B.pullbackPct],
+        ["Target (high)", P.swingHigh == null ? null : P.swingHigh.toFixed(2), null, null],
+        ["Reward:risk", P.rr == null ? null : P.rr.toFixed(2), B.rrMin, P.rr != null && P.rr >= B.rrMin]
+      ]));
+    } else {
+      babyEl.textContent = baby;
+    }
     const confEl = document.createElement("span");
     confEl.className = "num";
     confEl.textContent = conf;
