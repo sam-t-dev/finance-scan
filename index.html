@@ -24,10 +24,10 @@
   </div>
   <main id="board"></main>
   <div id="diag" class="diag" style="display:none; position:fixed; bottom:0; left:0; right:0; background:#111; color:#ccc; border-top:1px solid #444; padding:8px; font:12px monospace; max-height:40vh; overflow:auto; z-index:50;">
-    <button type="button" id="diagClose" style="float:right">close</button>
+    <button type="button" id="diagClose" onclick="document.getElementById('diag').style.display='none'" style="float:right">close</button>
     <div id="diagLog"></div>
   </div>
-  <button type="button" id="diagBtn" style="position:fixed; bottom:8px; right:8px; z-index:40; background:#333; color:#fff; border:0; border-radius:6px; padding:6px 10px; font:12px sans-serif;">diag</button>
+  <button type="button" id="diagBtn" onclick="var p=document.getElementById('diag'); if(p) p.style.display = p.style.display==='none'?'block':'none';" style="position:fixed; bottom:8px; right:8px; z-index:40; background:#333; color:#fff; border:0; border-radius:6px; padding:6px 10px; font:12px sans-serif;">diag</button>
   <script src="scan-logic.js"></script>
   <script src="board.js"></script>
 </body>
