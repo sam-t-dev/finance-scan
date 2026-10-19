@@ -10,7 +10,7 @@ News is the latest Yahoo Finance story for that ticker: how many days ago, and t
 
 Pages: https://sam-t-dev.github.io/finance-scan/?cat=Stocks
 
-Worker: https://finance-scan-proxy.sam-t-dev.workers.dev/?cat=Stocks
+Worker: https://finance-scan-proxy.fr-labs.workers.dev/?cat=Stocks
 
 Loose and tight show an em dash unless every number that check needs is actually present. A missing number is not a pass and not a fail. A pass is shown only after StockAnalysis publishes numbers that clear the same fundamental thresholds. If that page cannot be fetched, or it does not include one of the numbers, the cell stays an em dash. The stock is not removed. Price and the technical scan still come from the chart feed. No number is invented.
 

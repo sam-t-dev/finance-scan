@@ -1,6 +1,6 @@
 function apiBase() {
   if (location.hostname.endsWith("workers.dev")) return "";
-  return "https://finance-scan-proxy.sam-t-dev.workers.dev";
+  return "https://finance-scan-proxy.fr-labs.workers.dev";
 }
 
 async function getJson(url) {
